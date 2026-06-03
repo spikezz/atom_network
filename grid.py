@@ -15,7 +15,6 @@ Any setting can still be overridden on the command line (it wins over the file):
 
 import argparse
 import ast
-import random
 from datetime import datetime
 from pathlib import Path
 
@@ -71,8 +70,9 @@ def main():
     ap.add_argument("--lr", type=float)
     ap.add_argument("--snapshot-every", dest="snapshot_every", type=int)
     ap.add_argument("--seed", type=int,
-                    help="grid seed; with --rerun, the init seed for the retried "
-                         "cells (default there: random, printed)")
+                    help="grid seed; with --rerun, start the retried cell(s) from "
+                         "a fresh init seeded with this. Omit it to instead restore "
+                         "each cell's EXACT original init (study lr in isolation).")
     ap.add_argument("--fps", type=int)
     ap.add_argument("--out")
     ap.add_argument("--device", help="cpu | cuda | cuda:N (default: auto, prefers RTX 3070)")
@@ -81,9 +81,9 @@ def main():
                     help='retrain only these grid cell(s) in an existing run, then '
                          'replace them in place. Coords are [row,col] (row ↓ depth, '
                          'col → width), e.g. --rerun "[0,2]" or --rerun "[[0,2],[1,1]]". '
-                         'Tune the retry with --seed (init) and --lr; both default to '
-                         'the saved run except --seed, which defaults to a fresh random '
-                         'init so a stuck cell gets a real second chance.')
+                         'By default the cell restarts from its EXACT original init, '
+                         'so pairing it with --lr isolates the effect of the learning '
+                         'rate; pass --seed N to start from a fresh init instead.')
     ap.add_argument("--run-dir", dest="run_dir",
                     help="which run folder --rerun targets (default: the latest "
                          "outputs/<timestamp>_<task>/ with a saved run state)")
@@ -109,12 +109,14 @@ def main():
                 ap.error(f"no run folder with a saved state found under {out_dir}/ "
                          f"for task '{cfg['task']}'. Run `python grid.py` first, "
                          f"or point at one with --run-dir.")
-        init_seed = (args.seed if args.seed is not None
-                     else random.randint(0, 2**31 - 1))
-        seed_note = "" if args.seed is not None else "  (random — pass --seed to reproduce)"
+        # no --seed => restore each cell's exact original init (init_seed=None);
+        # --seed N => a fresh, different start from that seed.
+        init_seed = args.seed
+        seed_note = (f"fresh init, seed {init_seed}" if init_seed is not None
+                     else "restoring each cell's exact original init")
         lr_note = f"lr {args.lr} (override)" if args.lr is not None else "lr from the saved run"
         print(f"Rerun: {run_dir}  |  device: {describe(device)}")
-        print(f"  cells {cells}  |  init seed {init_seed}{seed_note}  |  {lr_note}")
+        print(f"  cells {cells}  |  {seed_note}  |  {lr_note}")
         try:
             last = rerun_run(run_dir, cells, init_seed, fps=cfg["fps"],
                              device=device, lr=args.lr)
@@ -122,7 +124,8 @@ def main():
             ap.error(str(e))
         print("New loss for the retrained cell(s):")
         for (r, c), f in last.items():
-            print(f"  [{r},{c}] {f['arch']}:{f['nparams']}p  loss={f['loss']:.3f}")
+            print(f"  [{r},{c}] {f['arch']}:{f['nparams']}p  loss={f['loss']:.3f}  "
+                  f"(lr {f['lr']:g}, seed {f['seed']})")
         print(f"Replaced {len(last)} cell(s) in place; the other cells were left "
               f"untouched and the grid overview was refreshed.\n  {run_dir}/")
         return

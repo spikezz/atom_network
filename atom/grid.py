@@ -88,6 +88,15 @@ def train_grid(rows=2, cols=2, task="regression", epochs=1500, lr=0.01,
     arch = make_architectures(rows, cols, base_width, base_depth)
 
     nets = [[MLP(hidden=arch[r][c]).to(device) for c in range(cols)] for r in range(rows)]
+    # The pristine starting weights of every cell, captured before a single
+    # training step. Saved with the run so a later --rerun can put a cell back to
+    # its EXACT original init and change only the lr — a clean test of whether a
+    # different rate escapes the minimum this init fell into. (Re-seeding can't do
+    # this: in the grid all cells share one RNG stream and each draws from a
+    # different position, so the same seed value gives a different init per cell.)
+    init_weights = [[{k: v.detach().cpu().clone()
+                      for k, v in nets[r][c].state_dict().items()}
+                     for c in range(cols)] for r in range(rows)]
     opt = [[torch.optim.Adam(nets[r][c].parameters(), lr=lr) for c in range(cols)]
            for r in range(rows)]
     criterion = nn.MSELoss() if task == "regression" else nn.BCEWithLogitsLoss()
@@ -117,10 +126,12 @@ def train_grid(rows=2, cols=2, task="regression", epochs=1500, lr=0.01,
         "task": task, "rows": rows, "cols": cols, "arch": arch,
         "gx": gx, "gy": gy, "true_surface": true_surface(gx, gy, task),
         "grid_lim": GRID_LIM, "total_epochs": epochs, "device": str(device),
-        # everything a later --rerun needs to retrain a single cell identically:
-        # same data + same architecture grid, only a fresh init seed.
+        # everything a later --rerun needs to retrain a single cell: same data +
+        # same architecture grid, plus each cell's exact starting weights so the
+        # retry can reproduce the original init (or take a fresh seed instead).
         "base_width": base_width, "base_depth": base_depth,
         "lr": lr, "n": n, "snapshot_every": snapshot_every, "seed": seed,
+        "init_weights": init_weights,
     }
     return histories, context
 
@@ -239,16 +250,24 @@ def render_run(histories, context, run_dir, fps=12):
 # re-running only the cells that failed — keep the good cells untouched
 # --------------------------------------------------------------------------- #
 def rerun_cells(context, cells, init_seed, device=None, lr=None):
-    """Re-train just the listed (row, col) cells on the *same data* the grid
-    used, but from a *fresh init seed* so a cell stuck in a bad minimum gets a
-    real second chance. Returns {(r, c): history}.
+    """Re-train just the listed (row, col) cells on the *same data* the grid used.
+    Returns {(r, c): history}. Nothing here touches the other cells.
+
+    Two init modes, chosen by ``init_seed``:
+
+      * ``init_seed is None`` — restore the cell's EXACT original starting weights
+        (saved with the run as ``context["init_weights"]``). Pair this with a new
+        ``lr`` to ask the clean question "same start, does a different rate escape
+        the minimum this cell fell into?" Re-seeding can't reproduce that init —
+        in the grid every cell shares one RNG stream from a different position —
+        which is why we keep the actual weights, not the seed number.
+      * ``init_seed`` an int — a *fresh, different* start from that seed, so a
+        stuck cell gets a genuinely new roll of the dice.
 
     ``lr`` overrides the learning rate for this retry; None reuses the rate the
     original grid trained with. Everything that would change the frame count
     (epochs, snapshot_every) stays locked to the run so the cell still lines up
     with its neighbours in the grid animation.
-
-    Nothing here touches the other cells — only the ones asked for are trained.
     """
     if device is None:
         device = pick_device()
@@ -258,6 +277,7 @@ def rerun_cells(context, cells, init_seed, device=None, lr=None):
     snapshot_every = context["snapshot_every"]
     arch_grid = context["arch"]
     gx, gy = context["gx"], context["gy"]
+    init_weights = context.get("init_weights")
 
     # identical dataset to the original grid run (same seed) ...
     X, y = make_data(context["n"], task, context["seed"])
@@ -269,8 +289,21 @@ def rerun_cells(context, cells, init_seed, device=None, lr=None):
     out = {}
     for (r, c) in cells:
         hidden = tuple(arch_grid[r][c])
-        torch.manual_seed(init_seed)          # ... but a fresh init each rerun
-        net = MLP(hidden=hidden).to(device)
+        if init_seed is None:
+            # ... and the cell's EXACT original init, so only lr differs.
+            if not init_weights or init_weights[r][c] is None:
+                raise ValueError(
+                    f"cell [{r},{c}] has no saved starting weights — this run was "
+                    f"recorded before that was kept. Re-run `grid.py` once to "
+                    f"capture them, or pass --seed N to start from a fresh init.")
+            net = MLP(hidden=hidden).to(device)
+            net.load_state_dict({k: v.to(device)
+                                 for k, v in init_weights[r][c].items()})
+            seed_used = context["seed"]        # the seed that produced this init
+        else:
+            torch.manual_seed(init_seed)       # ... or a fresh, different start
+            net = MLP(hidden=hidden).to(device)
+            seed_used = init_seed
         opt = torch.optim.Adam(net.parameters(), lr=lr)
         losses, history = [], []
         for epoch in range(epochs):
@@ -282,7 +315,7 @@ def rerun_cells(context, cells, init_seed, device=None, lr=None):
             losses.append(loss.item())
             if epoch % snapshot_every == 0 or epoch == epochs - 1:
                 history.append(_cell_frame(net, epoch, losses, grid, gx, gy, task,
-                                           lr, init_seed))
+                                           lr, seed_used))
         out[(r, c)] = history
     return out
 
@@ -293,7 +326,9 @@ def rerun_run(run_dir, cells, init_seed, fps=12, device=None, lr=None):
     overview is refreshed so it shows the new result — every other cell's
     standalone dashboard is left exactly as it was.
 
-    ``lr`` overrides the learning rate for the retry (None = the run's own rate).
+    ``init_seed`` None restores each cell's exact original init (saved with the
+    run); an int starts from a fresh seed instead. ``lr`` overrides the learning
+    rate for the retry (None = the run's own rate). See ``rerun_cells``.
 
     Returns {(r, c): last_frame} for reporting the new loss.
     """

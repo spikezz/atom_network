@@ -142,14 +142,12 @@ every run.)
 Training is random: now and then a cell lands in a bad minimum (the deep,
 narrow `2-2-2-1` is a repeat offender) and shows a much worse loss than its
 neighbours. You don't have to retrain the whole grid — point `--rerun` at the
-cell(s) by `[row, col]` and only those are retrained, **in place**, with a
-fresh init seed so they get a real second chance:
+cell(s) by `[row, col]` and only those are retrained, **in place**:
 
 ```bash
-uv run python grid.py --rerun "[1,0]"                 # retry one cell
-uv run python grid.py --rerun "[[1,0],[0,2]]"         # retry several
-uv run python grid.py --rerun "[1,0]" --seed 7        # reproducible retry (init seed)
-uv run python grid.py --rerun "[1,0]" --lr 0.05       # retry with a different learning rate
+uv run python grid.py --rerun "[1,0]" --lr 0.005      # same exact init, smaller lr
+uv run python grid.py --rerun "[[1,0],[0,2]]" --lr 0.005   # several at once
+uv run python grid.py --rerun "[1,0]" --seed 7        # a fresh, different init
 ```
 
 - coordinates are `[row, col]` — row ↓ (depth), col → (width); the same axes
@@ -157,17 +155,25 @@ uv run python grid.py --rerun "[1,0]" --lr 0.05       # retry with a different l
 - only the listed cells are retrained and their dashboards replaced; every
   other cell's dashboard is left untouched. The grid overview is redrawn so it
   reflects the new result.
-- two knobs, mirroring the grid's own flags: **`--seed`** (the init) and
-  **`--lr`** (the learning rate). `--lr` defaults to the saved run; `--seed`
-  defaults to a *fresh random* init (printed) so a stuck cell actually gets a
-  different start — pass `--seed N` to reproduce a good one.
+- **two init modes**, both keeping the data fixed:
+  - **default (no `--seed`)** — the cell restarts from its **exact original
+    weights**. Those starting numbers are saved with every run (inside
+    `run_state.pkl`), so pairing the rerun with **`--lr`** asks one clean
+    question: *with the very same starting point, does a different learning rate
+    escape the minimum this cell fell into?* Nothing but the lr changes.
+    (Re-seeding can't do this: in the grid all cells share one random stream and
+    each draws from a different position, so the same seed value would give a
+    *different* init — which is the whole point of keeping the actual weights.)
+  - **`--seed N`** — start from a genuinely **fresh, different** init, for when
+    you just want a stuck cell to get a new roll of the dice.
+- **`--lr`** defaults to the saved run's rate; give it to change the rate.
 - **which run?** by default it patches the *latest* `outputs/<timestamp>_<task>/`
   (the one closest to now); point at a specific one with
   `--run-dir outputs/20260604-000935_regression`. The replacement happens inside
   that folder.
-- keep re-running until the loss drops — each try is a different init. Every
-  cell's dashboard prints the `lr` and `seed` it was trained with, so you can
-  always see what produced it (handy once different cells have different ones).
+- every cell's dashboard prints the `lr` and `seed` it was trained with, so you
+  can always read off what produced it (in the default mode the seed shown is
+  the grid's, i.e. the seed that originally made that init).
 
 ## How it's built
 

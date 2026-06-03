@@ -30,10 +30,11 @@ uv run python grid.py                                       # uses config.yaml
 uv run python grid.py --rows 3 --cols 3 --task classification
 
 # retrain only the cell(s) that got stuck, in place. coords are [row,col];
-# targets the latest run folder unless --run-dir given. --seed (init, default
-# random) and --lr (default: saved run) tune the retry, mirroring the grid flags.
-uv run python grid.py --rerun "[1,0]"
-uv run python grid.py --rerun "[[1,0],[0,2]]" --seed 7 --lr 0.05
+# targets the latest run folder unless --run-dir given. default restores the
+# cell's EXACT original init (so --lr isolates the learning rate's effect);
+# --seed N starts from a fresh init instead. --lr defaults to the saved run.
+uv run python grid.py --rerun "[1,0]" --lr 0.005       # same init, smaller lr
+uv run python grid.py --rerun "[[1,0],[0,2]]" --seed 7 # fresh init for several
 
 # force a device on either entry point
 uv run python main.py --device cpu
@@ -45,8 +46,9 @@ timestamped folder `outputs/<timestamp>_<task>/` holding `grid.gif`/`grid.png`
 (the whole grid), one subfolder per cell `r{r}c{c}_{arch}/` with that cell's own
 standalone dashboard `<arch>.gif`/`<arch>.png`, a `config.yaml` snapshot of the
 effective settings that produced the run, and `run_state.pkl` (the recorded run
-that `--rerun` patches). `--rerun` targets the latest run folder by default, or
-`--run-dir <path>` for a specific one.
+that `--rerun` patches — it also stores every cell's pristine starting weights so
+a default rerun can reproduce the exact original init). `--rerun` targets the
+latest run folder by default, or `--run-dir <path>` for a specific one.
 
 ## Architecture
 
