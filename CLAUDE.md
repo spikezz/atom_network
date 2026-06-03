@@ -4,30 +4,50 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is the `atom_network` project - currently a minimal repository containing only a basic README.md file. The project appears to be in its initial setup phase with no source code, build configuration, or dependencies yet established.
+`atom_network` is an **educational visualization** of the smallest interesting
+neural network: a 2 → 2 → 1 MLP (9 trainable parameters). The point is not the
+model — it's making every weight, neuron, and gradient *visible* so a human can
+watch the network learn. Training produces a per-frame "flip-book"; the
+visualizer plays it back as an animated dashboard (network diagram + loss curve
++ learned-vs-truth function surfaces).
 
-## Current State
+## Environment & Commands
 
-The repository contains:
-- README.md with project title only
-- Git repository initialization (clean working directory on main branch)
-- No source code files or build configuration present
+Uses **uv** with a project-local `.venv` (CPU-only PyTorch — the net is tiny).
+Do **not** use conda.
 
-## Development Setup
+```bash
+uv sync                 # create .venv, install deps from pyproject.toml + uv.lock
+uv run python main.py                                       # regression demo
+uv run python main.py --task classification --epochs 2000   # classification demo
+```
 
-Since this is a new project without established tooling:
-- No package manager configuration found
-- No build system configured
-- No testing framework established
-- No linting or formatting tools configured
+Outputs are written to `outputs/` as `<task>_training.gif` and `<task>_final.png`.
 
-## Next Steps for Development
+## Architecture
 
-When developing in this repository, you'll likely need to:
-1. Choose and set up the appropriate technology stack
-2. Initialize package management (package.json, Cargo.toml, go.mod, etc.)
-3. Set up build and development scripts
-4. Configure testing framework
-5. Add linting and formatting tools
+```
+atom/
+├── model.py       SimpleMLP — the 2-2-1 net; .trace() returns intermediate
+│                  activations, .snapshot() returns weights/biases for drawing.
+├── data.py        synthetic datasets (regression bowl, classification XOR) +
+│                  true_surface() ground truth.
+├── monitor.py     NetworkMonitor — PyTorch forward/backward hooks (read-only
+│                  probes for activations + gradient norms).
+├── train.py       training loop; records a frame dict every `snapshot_every`
+│                  epochs. Returns (model, history, context).
+└── visualize.py   render(history, context) -> GIF + PNG (matplotlib, Agg).
+main.py            argparse CLI entry point.
+```
 
-This CLAUDE.md should be updated once the project structure and tooling are established.
+Key design rule: **training records, visualization replays.** Keep those two
+concerns separated — the same `history` can become an animation or a still.
+
+## Conventions
+
+- Dependencies live in `pyproject.toml`; torch is pinned to the CPU wheel index.
+  After changing deps, run `uv lock` then `uv sync`.
+- `.venv/`, `__pycache__/` are git-ignored. `outputs/` artifacts are kept (the
+  README embeds `outputs/regression_final.png`).
+- Code is written to be *read by a learner*: prefer clear names and comments
+  that explain the "why" over cleverness.

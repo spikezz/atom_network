@@ -1,150 +1,92 @@
-# Product Requirements Document: Simple 2-Layer MLP
+# 产品需求文档：atom_network（最小神经网络显微镜）
 
-## Project Overview
-Build the simplest possible Multi-Layer Perceptron (MLP) neural network using PyTorch with a well-defined, minimal architecture.
+> 本文档描述项目**当前的真实状态**，而非最初的设想。它与 `atom/` 下的代码一一对应。
 
-## Technical Requirements
+## 项目概述
+`atom_network` 是一个**教学型可视化项目**：训练一个最小但仍然有趣的神经网络（2 → 2 → 1 的 MLP，共 **9 个可训练参数**），并把它学习的全过程渲染成动画，让人能**亲眼看见**每一个权重、每一个神经元、每一条梯度的变化。
 
-### Network Architecture
-- **Input Layer**: 2 neurons (2 input features)
-- **Hidden Layer**: 2 neurons with activation function
-- **Output Layer**: 1 neuron (single output prediction)
-- **Total Layers**: 2 trainable layers (hidden + output)
+核心不是模型本身，而是把这 9 个数字以及它们的作用**变得对人类可见**。
 
-### Implementation Details
-- **Framework**: PyTorch
-- **Activation Function**: ReLU for hidden layer, no activation for output (regression) or Sigmoid (binary classification)
-- **Weight Initialization**: PyTorch default initialization
-- **Bias**: Include bias terms in both layers
+## 技术需求
 
-### Network Structure
+### 网络架构
 ```
-Input (2) → Hidden Layer (2) → Output (1)
+输入 (2) → 隐藏层 (2, ReLU) → 输出 (1)
 ```
+- **输入层**：2 个输入特征
+- **隐藏层**：2 个神经元，ReLU 激活
+- **输出层**：1 个神经元（回归不加激活；分类在可视化时对输出取 Sigmoid）
+- **参数总数**：9 个（6 个权重 + 3 个偏置）—— 少到可以同时画在一张图上
 
-### Functional Requirements
+### 运行环境
+- **框架**：PyTorch（CPU wheel —— 这个网络太小，不需要 GPU）
+- **包管理**：[`uv`](https://docs.astral.sh/uv/) + 项目内 `.venv`（不使用 conda）
+- **依赖**：`torch`、`numpy`、`matplotlib`、`pillow`（依赖与 CPU index 锁定在 `pyproject.toml` / `uv.lock`）
+- **可视化后端**：matplotlib 的 `Agg`（无头渲染，直接出文件，无需窗口）
 
-#### Core Components
-1. **Model Definition**
-   - Define MLP class inheriting from `nn.Module`
-   - Two linear layers: `nn.Linear(2, 2)` and `nn.Linear(2, 1)`
-   - Forward pass implementation
+### 核心设计：录制 → 回放
+- **训练负责录制**：每隔 `snapshot_every` 个 epoch，冻结一帧"翻页书"快照（当前权重、目前为止的 loss、梯度范数、探针输入的逐层激活、网络当前表示的整个函数面）。
+- **可视化负责回放**：把这串快照渲染成动画 GIF + 一张最终静帧 PNG。
+- 二者关注点分离，因此同一份 `history` 既能产出平滑动画，也能产出一张清晰静图。
 
-2. **Training Setup**
-   - Loss function (MSE for regression or BCELoss for classification)
-   - Optimizer (SGD or Adam)
-   - Training loop with forward/backward pass
+## 功能需求
 
-3. **Data Handling**
-   - Simple synthetic dataset generation
-   - Data preprocessing if needed
-   - Train/validation split (optional for demo)
-
-4. **Demonstration**
-   - Training the model on sample data
-   - Inference example with new input
-   - Basic performance visualization
-
-5. **Real-time Visualization System**
-   - Interactive network diagram showing neuron activations
-   - Real-time monitoring of tensor values during training/inference
-   - Live updates of weights and biases
-   - Activation flow visualization through the network
-
-### Non-Functional Requirements
-- **Simplicity**: Minimal code with clear structure
-- **Readability**: Well-commented code explaining each step
-- **Modularity**: Separate concerns (model, training, data)
-
-## Implementation Plan
-
-### Phase 1: Core Implementation
-1. Set up PyTorch imports and dependencies
-2. Define the MLP model class
-3. Create simple synthetic dataset
-4. Implement training loop
-5. Add inference capability
-
-### Phase 2: Visualization System
-1. Implement real-time network visualization
-2. Add tensor flow monitoring hooks
-3. Create interactive dashboard for training observation
-
-### Phase 3: Enhancement
-1. Add basic visualization (loss curve)
-2. Include model evaluation metrics
-3. Add example usage and documentation
-
-## Success Criteria
-
-### Core Functionality
-- [ ] Model trains without errors
-- [ ] Forward pass produces correct output shape (batch_size, 1)
-- [ ] Loss decreases during training
-- [ ] Model can make predictions on new data
-- [ ] Code is clean and well-documented
-
-### Visualization System
-- [ ] Real-time display of neuron activations during forward pass
-- [ ] Live monitoring of weight/bias values during training
-- [ ] Interactive network diagram with clickable neurons
-- [ ] Tensor value inspection at each layer
-- [ ] Smooth animation of data flow through network
-- [ ] Training progress visualization with activation heatmaps
-
-## File Structure
+### 核心组件（实际文件）
 ```
-atom_network/
-├── mlp_model.py          # MLP class definition with visualization hooks
-├── train.py              # Training script with real-time monitoring
-├── demo.py               # Usage demonstration
-├── visualizer.py         # Real-time network visualization system
-├── dashboard.py          # Interactive training dashboard
-├── hooks.py              # PyTorch forward/backward hooks for tensor monitoring
-└── requirements.txt      # Dependencies
+atom/
+├── model.py       # SimpleMLP（2-2-1 网络）+ .trace()/.snapshot() 自报内部状态
+├── data.py        # 两个合成数据集 + true_surface() 真实目标函数
+├── monitor.py     # NetworkMonitor：PyTorch 前向/反向 hooks（只读探针，读激活与梯度范数）
+├── train.py       # 训练循环；逐帧记录 history，返回 (model, history, context)
+└── visualize.py   # render(history, context) → GIF + PNG（四联面板仪表盘）
+main.py            # argparse 命令行入口
 ```
 
-## Dependencies
-- torch
-- numpy (for data generation)
-- matplotlib (for visualization)
-- plotly (for interactive plots)
-- dash (for web-based dashboard)
-- threading (for concurrent visualization updates)
+### 数据集（两个任务）
+1. **回归**：学习 `y = x₁² + x₂²` 的光滑碗形（带少量噪声）。两个 ReLU 神经元无法完美拟合曲面，观察它如何用几道直线折叠去**近似**曲面，本身就是教学点。
+2. **分类**：学习 XOR 式规则「当 x₁、x₂ 同号时标签为 1」，即四象限棋盘。两个隐藏神经元不足以干净地切开它——网络只会啃下主对角带后停滞，如实暴露 9 参数网络的**容量上限**。
 
-## Detailed Visualization Requirements
+### 可视化系统（四联同步面板）
+`render()` 输出的仪表盘由四块同步面板讲述同一个"学习"故事：
+- **左 · 网络本体**：圆 = 神经元（颜色编码当前激活值，并标出数值与偏置）；线 = 权重（红正蓝负，越粗代表绝对值越大，并标出数值）。即实时观看这 9 个数字被调整。
+- **右上 · loss 曲线**：随训练下降的损失（对数纵轴），标注当前 epoch 与 loss。
+- **右下中 · 学到的函数**：网络此刻在输入平面上表示的函数（热力图）。
+- **右下右 · 真实目标**：它正试图逼近的真值函数（热力图），与上一块共用色标。
+- 观看"学到的函数"逐渐变成"真实目标"，同时左侧权重移动、右上 loss 下降——这就是学习的完整画面。
 
-### Real-time Network Monitoring
-1. **Neuron Activation Display**
-   - Color-coded neurons showing activation intensity
-   - Numerical values displayed on hover/click
-   - Smooth transitions between forward passes
+### 命令行用法
+```bash
+uv sync                                                       # 创建 .venv 并安装依赖
+uv run python main.py                                         # 回归：学习光滑碗形
+uv run python main.py --task classification --epochs 2000     # 分类：学习 XOR
+```
+产物落在 `outputs/`，形式为动画 `<task>_training.gif` 与最终静帧 `<task>_final.png`。
 
-2. **Tensor Flow Visualization**
-   - Animated arrows showing data flow direction
-   - Thickness/color intensity representing magnitude
-   - Step-by-step progression through layers
+参数：`--task {regression,classification}`、`--epochs`、`--lr`、`--snapshot-every`、`--fps`、`--out`。
 
-3. **Weight/Bias Monitoring**
-   - Heatmaps for weight matrices
-   - Real-time updates during training
-   - Historical tracking of parameter changes
+### 非功能需求
+- **简洁性**：代码极简，结构清晰。
+- **可读性**：注释面向"初学者阅读"，优先解释"为什么"而非炫技。
+- **模块化**：模型 / 数据 / 监控 / 训练 / 可视化 关注点分离。
+- **可复现**：固定随机种子；依赖与 Python 版本由 uv 锁定。
 
-4. **Interactive Features**
-   - Pause/resume training for detailed inspection
-   - Click neurons to see detailed tensor information
-   - Adjust visualization speed and detail level
-   - Export snapshots of network state
+## 成功标准
 
-### Technical Implementation Details
-- **PyTorch Hooks**: Use forward hooks to capture intermediate activations
-- **Threading**: Separate visualization thread to avoid blocking training
-- **Data Structure**: Efficient storage of activation history for playback
-- **Performance**: Minimal overhead on training performance
+### 核心功能
+- [x] 模型训练无报错
+- [x] 前向传播产生正确的输出形状 (batch_size, 1)
+- [x] 训练过程中损失下降
+- [x] 模型能对新数据做预测
+- [x] 代码整洁、文档完善
 
-## Example Use Cases
-1. **Binary Classification**: Predict 0/1 based on 2 input features
-2. **Regression**: Predict continuous value from 2 inputs
-3. **Learning XOR**: Classic non-linearly separable problem
-4. **Visualization Demo**: Watch network learn patterns in real-time
-5. **Educational Tool**: Understand neural network internals through visualization
+### 可视化系统
+- [x] 用颜色编码显示神经元激活，并标出数值
+- [x] 在每一帧显示权重/偏置数值
+- [x] 网络示意图：神经元（节点）+ 权重（带颜色与粗细的连线）
+- [x] 逐层张量数值可见（探针输入的逐层激活）
+- [x] 数据流经网络的学习过程动画（GIF）
+- [x] 带 loss 曲线与「学到 vs 真实」函数热力图对比的训练进度可视化
+
+## 设计取舍与未来方向
+- 最初设想是一个**交互式网页仪表盘**（plotly/dash、可点击神经元、暂停/恢复、独立可视化线程）。当前实现改为更简单、更可复现的路线：**离线渲染的动画 GIF + 静帧 PNG**（matplotlib）。它满足了"看见网络如何学习"的核心意图，且无需运行服务、无需浏览器。
+- 若未来需要真正的交互（悬停查看数值、拖动时间轴、实时训练），可在现有 `history`/`render` 之上叠加一个 web 前端——录制-回放的架构已为此留好了接口。
