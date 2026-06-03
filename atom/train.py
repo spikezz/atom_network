@@ -9,9 +9,10 @@ visualizer turns that flip-book into an animation.
 import torch
 import torch.nn as nn
 
-from .model import SimpleMLP
+from .model import MLP
 from .data import make_data, true_surface
 from .monitor import NetworkMonitor
+from .device import pick_device
 
 # One fixed input we follow through the network in every frame, so the
 # activation numbers on the diagram are comparable across time.
@@ -31,8 +32,9 @@ def _input_grid():
 
 def _frame(model, monitor, epoch, losses, task, grid, gx, gy):
     """Snapshot everything the visualizer needs for one animation frame."""
+    device = next(model.parameters()).device
     snap = model.snapshot()
-    trace = model.trace(PROBE)
+    trace = model.trace(PROBE.to(device))
     with torch.no_grad():
         pred = model(grid).reshape(gx.shape)
         if task == "classification":
@@ -41,29 +43,36 @@ def _frame(model, monitor, epoch, losses, task, grid, gx, gy):
         "epoch": epoch,
         "loss": losses[-1],
         "losses": list(losses),
-        "weights": snap,
+        "sizes": list(model.sizes),
+        "snap": snap,
         "trace": trace,
+        "arch": model.arch_str(),
+        "nparams": model.n_params(),
         "grad_norms": dict(monitor.grad_norms),
-        "pred_surface": pred.clone(),
+        "pred": pred.cpu().clone(),
     }
 
 
 def train(task="regression", epochs=1000, lr=0.01, n=1000,
-          snapshot_every=20, seed=42):
+          snapshot_every=20, seed=42, device=None):
     """Train the MLP and return (model, history, context).
 
     history is a list of per-frame snapshots; context holds the static grid
     and the ground-truth surface used for plotting.
     """
+    if device is None:
+        device = pick_device()
     torch.manual_seed(seed)
-    model = SimpleMLP()
+    model = MLP(hidden=(2,)).to(device)
     X, y = make_data(n, task, seed)
+    X, y = X.to(device), y.to(device)
 
     criterion = nn.MSELoss() if task == "regression" else nn.BCEWithLogitsLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     monitor = NetworkMonitor().attach(model)
     grid, gx, gy = _input_grid()
+    grid = grid.to(device)
 
     history, losses = [], []
     for epoch in range(epochs):
@@ -87,5 +96,6 @@ def train(task="regression", epochs=1000, lr=0.01, n=1000,
         "probe": PROBE,
         "grid_lim": GRID_LIM,
         "total_epochs": epochs,
+        "device": str(device),
     }
     return model, history, context

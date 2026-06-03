@@ -1,18 +1,18 @@
 """Turn a training flip-book into something a human can read at a glance.
 
-The dashboard has four panels:
+The unit of display is a **dashboard cell** with four panels:
 
-  * left  — the network itself. Circles are neurons coloured by the value
-            they currently hold; lines are weights, red for positive, blue
-            for negative, thick when large. You are literally looking at the
-            nine numbers being tuned.
-  * top-right    — the loss falling as the network learns.
-  * bottom-mid   — the function the network represents *right now*.
-  * bottom-right — the function it is trying to match (the ground truth).
+  * network diagram — circles are neurons (coloured by their value, with the
+    number printed inside and the bias below); lines are weights (red +, blue −,
+    thick when large, with the value printed on the line).
+  * loss curve — how wrong the network is, falling over epochs.
+  * "what the network learned" — the function it represents right now.
+  * "the truth" — the function it is trying to match.
 
-Watching the bottom-middle morph into the bottom-right, while the weights on
-the left shift and the loss on the top-right drops, is the whole story of
-learning in one picture.
+`draw_dashboard()` fills one cell. The single-network view is exactly one cell;
+the capacity grid (see atom/grid.py) is a whole grid of identical cells. The
+drawing is generic over architecture, so a 2-2-1 and a 2-3-3-1 render the same
+way — only bigger.
 """
 
 import matplotlib
@@ -24,178 +24,213 @@ from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
 from matplotlib.animation import FuncAnimation, PillowWriter
 
-# Neuron positions, laid out left to right: inputs, hidden, output.
-POS = {
-    "input": [(0.0, 0.6), (0.0, -0.6)],
-    "hidden": [(1.0, 0.6), (1.0, -0.6)],
-    "output": [(2.0, 0.0)],
-}
-NODE_R = 0.17
-WEIGHT_CMAP = plt.get_cmap("coolwarm")   # blue (−)  ...  red (+)
+WEIGHT_CMAP = plt.get_cmap("coolwarm")   # weights: blue (−) … red (+)
 ACT_CMAP = plt.get_cmap("RdBu_r")        # neuron activation, diverging at 0
+
+_SUB = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+
+
+def _sub(i: int) -> str:
+    return str(i).translate(_SUB)
 
 
 def _text_color(rgba):
-    """Pick black or white text for readability over a coloured node."""
     r, g, b, _ = rgba
-    luminance = 0.299 * r + 0.587 * g + 0.114 * b
-    return "black" if luminance > 0.6 else "white"
+    return "black" if 0.299 * r + 0.587 * g + 0.114 * b > 0.6 else "white"
 
 
-def _global_scales(history):
-    """Fixed colour scales across the whole animation so colours mean the
-    same thing in every frame."""
+def scales_from_frames(frames):
+    """Fixed weight/activation colour scales across every frame (and every cell)
+    so a colour means the same thing everywhere."""
     w_max, a_max = 1e-6, 1e-6
-    for f in history:
-        w = f["weights"]
-        for key in ("W1", "W2"):
-            w_max = max(w_max, w[key].abs().max().item())
-        t = f["trace"]
-        for key in ("input", "hidden_post", "output"):
-            a_max = max(a_max, t[key].abs().max().item())
-    return w_max, a_max
+    for f in frames:
+        for (W, _b) in f["snap"]:
+            w_max = max(w_max, W.abs().max().item())
+        for act in f["trace"]:
+            a_max = max(a_max, act.abs().max().item())
+    return Normalize(-w_max, w_max), Normalize(-a_max, a_max)
 
 
-def _draw_network(ax, frame, w_norm, a_norm):
+# --------------------------------------------------------------------------- #
+# network diagram — generic over any width/depth, fully labelled
+# --------------------------------------------------------------------------- #
+def _positions(sizes, y_lo=0.05, y_hi=0.95):
+    L = len(sizes)
+    xs = [l / (L - 1) for l in range(L)] if L > 1 else [0.5]
+    dy = (y_hi - y_lo) / max(max(sizes), 1)
+    pos = []
+    for l, n in enumerate(sizes):
+        ys = [0.5 + (i - (n - 1) / 2) * dy for i in range(n)]
+        pos.append([(xs[l], y) for y in ys])
+    return pos, dy
+
+
+def draw_network(ax, sizes, snap, trace, w_norm, a_norm):
     ax.clear()
-    ax.set_xlim(-0.6, 2.6)
-    ax.set_ylim(-1.45, 1.45)
+    ax.set_xlim(-0.13, 1.13)
+    ax.set_ylim(-0.16, 1.18)
     ax.set_aspect("equal")
     ax.axis("off")
-    ax.set_title("the network  ·  lines = weights, circles = neurons",
-                 fontsize=11, pad=8)
 
-    W = frame["weights"]
-    t = frame["trace"]
-    inp = t["input"][0]
-    hid = t["hidden_post"][0]
-    out = t["output"][0]
+    pos, dy = _positions(sizes)
+    node_r = min(0.40 * dy, 0.06)
+    L = len(sizes)
 
-    # --- weights as edges -------------------------------------------------
-    def edge(p0, p1, value):
-        color = WEIGHT_CMAP(w_norm(value))
-        width = 1.0 + 5.0 * min(abs(value) / max(w_norm.vmax, 1e-6), 1.0)
-        ax.plot([p0[0], p1[0]], [p0[1], p1[1]], color=color, lw=width,
-                solid_capstyle="round", zorder=1)
-        mx, my = 0.55 * p0[0] + 0.45 * p1[0], 0.55 * p0[1] + 0.45 * p1[1]
-        ax.text(mx, my, f"{value:+.2f}", fontsize=7, ha="center", va="center",
-                color="#222", zorder=3,
-                bbox=dict(boxstyle="round,pad=0.12", fc="white", ec="none", alpha=0.75))
+    # edges = weights (with value labels)
+    for l in range(L - 1):
+        W = snap[l][0]  # (out, in)
+        for j, (x1, y1) in enumerate(pos[l + 1]):
+            for i, (x0, y0) in enumerate(pos[l]):
+                w = W[j, i].item()
+                width = 0.5 + 4.5 * min(abs(w) / max(w_norm.vmax, 1e-6), 1.0)
+                ax.plot([x0, x1], [y0, y1], color=WEIGHT_CMAP(w_norm(w)), lw=width,
+                        solid_capstyle="round", zorder=1)
+                mx, my = 0.58 * x0 + 0.42 * x1, 0.58 * y0 + 0.42 * y1
+                ax.text(mx, my, f"{w:+.2f}", fontsize=6, ha="center", va="center",
+                        color="#222", zorder=3,
+                        bbox=dict(boxstyle="round,pad=0.08", fc="white",
+                                  ec="none", alpha=0.72))
 
-    for j, hp in enumerate(POS["hidden"]):
-        for i, ip in enumerate(POS["input"]):
-            edge(ip, hp, W["W1"][j, i].item())
-    for j, hp in enumerate(POS["hidden"]):
-        edge(hp, POS["output"][0], W["W2"][0, j].item())
+    # nodes = neurons (value inside, label above, bias below)
+    for l, layer in enumerate(pos):
+        act = trace[l][0]
+        for i, (x, y) in enumerate(layer):
+            value = act[i].item()
+            rgba = ACT_CMAP(a_norm(value))
+            ax.add_patch(Circle((x, y), node_r, fc=rgba, ec="#333", lw=1.1, zorder=4))
+            ax.text(x, y, f"{value:.2f}", fontsize=6.5, ha="center", va="center",
+                    color=_text_color(rgba), zorder=5, weight="bold")
+            if l == 0:
+                label = "x" + _sub(i + 1)
+            elif l == L - 1:
+                label = "ŷ" if sizes[-1] == 1 else "ŷ" + _sub(i + 1)
+            else:
+                label = "h" + _sub(i + 1)
+            ax.text(x, y + node_r + 0.012, label, fontsize=7, ha="center",
+                    va="bottom", color="#444", zorder=5)
+            if l > 0:  # bias feeding this node
+                bias = snap[l - 1][1][i].item()
+                ax.text(x, y - node_r - 0.012, f"b={bias:+.2f}", fontsize=5.5,
+                        ha="center", va="top", color="#777", style="italic", zorder=5)
 
-    # --- neurons as nodes -------------------------------------------------
-    def node(pos, value, label, bias=None):
-        rgba = ACT_CMAP(a_norm(value))
-        ax.add_patch(Circle(pos, NODE_R, fc=rgba, ec="#333", lw=1.4, zorder=4))
-        ax.text(pos[0], pos[1], f"{value:.2f}", fontsize=8.5, ha="center",
-                va="center", color=_text_color(rgba), zorder=5, weight="bold")
-        ax.text(pos[0], pos[1] + NODE_R + 0.1, label, fontsize=8,
-                ha="center", va="bottom", color="#444")
-        if bias is not None:
-            ax.text(pos[0], pos[1] - NODE_R - 0.1, f"b={bias:+.2f}", fontsize=7,
-                    ha="center", va="top", color="#777", style="italic")
-
-    node(POS["input"][0], inp[0].item(), "x₁")
-    node(POS["input"][1], inp[1].item(), "x₂")
-    node(POS["hidden"][0], hid[0].item(), "h₁", W["b1"][0].item())
-    node(POS["hidden"][1], hid[1].item(), "h₂", W["b1"][1].item())
-    node(POS["output"][0], out[0].item(), "ŷ", W["b2"][0].item())
-
-    # column captions + the probe input being traced
-    for x, name in [(0, "Inputs"), (1, "Hidden · ReLU"), (2, "Output")]:
-        ax.text(x, 1.32, name, fontsize=9.5, ha="center", va="bottom",
+    # column captions
+    n_hidden = L - 2
+    for l in range(L):
+        if l == 0:
+            cap = "Inputs"
+        elif l == L - 1:
+            cap = "Output"
+        else:
+            cap = "Hidden · ReLU" if n_hidden == 1 else f"Hidden {l} · ReLU"
+        ax.text(pos[l][0][0], 1.10, cap, fontsize=7.5, ha="center", va="bottom",
                 color="#222", weight="bold")
-    ax.text(1.0, -1.4, f"tracing input  x = ({inp[0]:.0f}, {inp[1]:.0f})",
-            fontsize=8, ha="center", va="bottom", color="#666")
+
+    inp = trace[0][0]
+    probe = ", ".join(f"{v:.0f}" for v in inp.tolist())
+    ax.text(0.5, -0.13, f"tracing input  x = ({probe})", fontsize=6.5,
+            ha="center", va="bottom", color="#666")
 
 
-def _draw_loss(ax, frame, total_epochs):
+# --------------------------------------------------------------------------- #
+# loss + surfaces
+# --------------------------------------------------------------------------- #
+def draw_loss(ax, frame, total_epochs):
     ax.clear()
     losses = frame["losses"]
-    ax.plot(losses, color="#1f77b4", lw=1.8)
-    ax.scatter([len(losses) - 1], [losses[-1]], color="#d62728", zorder=5, s=24)
+    ax.plot(losses, color="#1f77b4", lw=1.6)
+    ax.scatter([len(losses) - 1], [losses[-1]], color="#d62728", zorder=5, s=20)
     ax.set_yscale("log")
     ax.set_xlim(0, total_epochs)
-    ax.set_title("loss — how wrong the network is", fontsize=11)
-    ax.set_xlabel("epoch")
-    ax.set_ylabel("loss (log)")
+    ax.set_title("loss — how wrong the network is", fontsize=9.5)
+    ax.set_xlabel("epoch", fontsize=8)
+    ax.set_ylabel("loss (log)", fontsize=8)
+    ax.tick_params(labelsize=7)
     ax.grid(True, which="both", alpha=0.25)
-    ax.text(0.97, 0.92, f"epoch {frame['epoch']}\nloss {frame['loss']:.4f}",
-            transform=ax.transAxes, ha="right", va="top", fontsize=9,
+    ax.text(0.96, 0.93, f"epoch {frame['epoch']}\nloss {frame['loss']:.4f}",
+            transform=ax.transAxes, ha="right", va="top", fontsize=8,
             bbox=dict(boxstyle="round", fc="#fff7e6", ec="#e0c080"))
 
 
-def _draw_surface(ax, data, ctx, title, vmin, vmax):
+def draw_surface(ax, data, lim, title, vmin, vmax):
     ax.clear()
+    ax.imshow(data, origin="lower", extent=[-lim, lim, -lim, lim],
+              cmap="viridis", vmin=vmin, vmax=vmax, aspect="equal")
+    ax.set_title(title, fontsize=9)
+    ax.set_xlabel("x₁", fontsize=8)
+    ax.set_ylabel("x₂", fontsize=8)
+    ax.tick_params(labelsize=7)
+
+
+# --------------------------------------------------------------------------- #
+# one full dashboard cell (network + loss + learned + truth)
+# --------------------------------------------------------------------------- #
+def draw_dashboard(axes, frame, ctx, w_norm, a_norm, s_vmin, s_vmax,
+                   net_title=None):
+    ax_net, ax_loss, ax_pred, ax_true = axes
     lim = ctx["grid_lim"]
-    im = ax.imshow(data, origin="lower", extent=[-lim, lim, -lim, lim],
-                   cmap="viridis", vmin=vmin, vmax=vmax, aspect="equal")
-    ax.set_title(title, fontsize=10.5)
-    ax.set_xlabel("x₁")
-    ax.set_ylabel("x₂")
-    return im
+    draw_network(ax_net, frame["sizes"], frame["snap"], frame["trace"], w_norm, a_norm)
+    if net_title is None:
+        net_title = "the network  ·  lines = weights, circles = neurons"
+    ax_net.set_title(net_title, fontsize=9.5, pad=6)
+    draw_loss(ax_loss, frame, ctx["total_epochs"])
+    draw_surface(ax_pred, frame["pred"].numpy(), lim, "what the network learned",
+                 s_vmin, s_vmax)
+    draw_surface(ax_true, ctx["true_surface"].numpy(), lim, "the truth (target)",
+                 s_vmin, s_vmax)
 
 
+def _surface_range(ctx):
+    if ctx["task"] == "classification":
+        return 0.0, 1.0
+    return 0.0, float(ctx["true_surface"].max())
+
+
+def _make_cell_axes(fig, spec):
+    """Carve a (2,4) dashboard out of one gridspec slot; return the 4 axes."""
+    sub = spec.subgridspec(2, 4, width_ratios=[1.1, 1.1, 1.0, 1.0],
+                           wspace=0.5, hspace=0.5)
+    ax_net = fig.add_subplot(sub[:, 0:2])
+    ax_loss = fig.add_subplot(sub[0, 2:4])
+    ax_pred = fig.add_subplot(sub[1, 2])
+    ax_true = fig.add_subplot(sub[1, 3])
+    return ax_net, ax_loss, ax_pred, ax_true
+
+
+def _shared_colorbars(fig, w_norm, s_vmin, s_vmax):
+    cax_w = fig.add_axes([0.935, 0.55, 0.012, 0.30])
+    fig.colorbar(ScalarMappable(w_norm, WEIGHT_CMAP), cax=cax_w).set_label(
+        "weight (− blue / + red)", fontsize=8)
+    cax_s = fig.add_axes([0.935, 0.14, 0.012, 0.30])
+    fig.colorbar(ScalarMappable(Normalize(s_vmin, s_vmax), "viridis"),
+                 cax=cax_s).set_label("output value", fontsize=8)
+
+
+# --------------------------------------------------------------------------- #
+# single-network render (one cell)
+# --------------------------------------------------------------------------- #
 def render(history, context, out_gif="outputs/training.gif",
            out_png="outputs/final.png", fps=12):
-    """Render the flip-book to an animated GIF and a final-state PNG."""
     task = context["task"]
     total_epochs = context["total_epochs"]
-    w_max, a_max = _global_scales(history)
-    w_norm = Normalize(-w_max, w_max)
-    a_norm = Normalize(-a_max, a_max)
-
-    true = context["true_surface"]
-    if task == "classification":
-        vmin, vmax = 0.0, 1.0
-    else:
-        vmin, vmax = 0.0, float(true.max())
+    w_norm, a_norm = scales_from_frames(history)
+    s_vmin, s_vmax = _surface_range(context)
 
     fig = plt.figure(figsize=(15, 8))
-    gs = fig.add_gridspec(2, 4, width_ratios=[1.1, 1.1, 1.0, 1.0],
-                          height_ratios=[1, 1], hspace=0.28, wspace=0.32)
-    ax_net = fig.add_subplot(gs[:, 0:2])
-    ax_loss = fig.add_subplot(gs[0, 2:4])
-    ax_pred = fig.add_subplot(gs[1, 2])
-    ax_true = fig.add_subplot(gs[1, 3])
-
-    # one shared colourbar for the two surface panels
-    sm = ScalarMappable(norm=Normalize(vmin, vmax), cmap="viridis")
-    cbar = fig.colorbar(sm, ax=[ax_pred, ax_true], fraction=0.046, pad=0.04)
-    cbar.set_label("output value", fontsize=8)
-
-    # one colourbar explaining the weight colours on the network
-    sm_w = ScalarMappable(norm=w_norm, cmap=WEIGHT_CMAP)
-    cbar_w = fig.colorbar(sm_w, ax=ax_net, fraction=0.04, pad=0.02,
-                          location="left")
-    cbar_w.set_label("weight value  (blue −  /  red +)", fontsize=8)
-
-    true_np = true.numpy()
+    gs = fig.add_gridspec(1, 1, left=0.05, right=0.90, top=0.88, bottom=0.07)
+    axes = _make_cell_axes(fig, gs[0, 0])
+    _shared_colorbars(fig, w_norm, s_vmin, s_vmax)
 
     def update(i):
-        frame = history[i]
-        _draw_network(ax_net, frame, w_norm, a_norm)
-        _draw_loss(ax_loss, frame, total_epochs)
-        _draw_surface(ax_pred, frame["pred_surface"].numpy(), context,
-                      "what the network learned", vmin, vmax)
-        _draw_surface(ax_true, true_np, context,
-                      "the truth (target)", vmin, vmax)
+        draw_dashboard(axes, history[i], context, w_norm, a_norm, s_vmin, s_vmax)
+        f = history[i]
         fig.suptitle(
-            f"atom_network — watching a 9-parameter brain learn  ·  "
-            f"{task}  ·  epoch {frame['epoch']}/{total_epochs}  ·  "
-            f"loss {frame['loss']:.4f}",
+            f"atom_network — watching a {f['nparams']}-parameter brain learn  ·  "
+            f"{task}  ·  epoch {f['epoch']}/{total_epochs}  ·  loss {f['loss']:.4f}",
             fontsize=14, weight="bold")
         return []
 
     anim = FuncAnimation(fig, update, frames=len(history), blit=False)
     anim.save(out_gif, writer=PillowWriter(fps=fps))
-
-    # final frame as a crisp still
     update(len(history) - 1)
     fig.savefig(out_png, dpi=130, bbox_inches="tight")
     plt.close(fig)

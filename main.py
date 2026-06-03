@@ -13,6 +13,7 @@ from pathlib import Path
 
 from atom.train import train
 from atom.visualize import render
+from atom.device import pick_device, describe
 
 
 def main():
@@ -25,6 +26,8 @@ def main():
     ap.add_argument("--lr", type=float, default=0.01)
     ap.add_argument("--snapshot-every", type=int, default=20,
                     help="capture one animation frame every N epochs")
+    ap.add_argument("--device", default=None,
+                    help="cpu | cuda | cuda:N (default: auto, prefers RTX 3070)")
     ap.add_argument("--out", default="outputs", help="output directory")
     ap.add_argument("--fps", type=int, default=12)
     args = ap.parse_args()
@@ -32,10 +35,12 @@ def main():
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    device = pick_device(override=args.device)
+    print(f"Device: {describe(device)}")
     print(f"Training {args.task} for {args.epochs} epochs (lr={args.lr})...")
     model, history, context = train(
         task=args.task, epochs=args.epochs, lr=args.lr,
-        snapshot_every=args.snapshot_every,
+        snapshot_every=args.snapshot_every, device=device,
     )
     print(f"Done. Final loss = {history[-1]['loss']:.6f} "
           f"over {len(history)} captured frames.")

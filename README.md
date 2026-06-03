@@ -38,11 +38,13 @@ top-right — all at the same time.
 ## Quick start
 
 This project uses [`uv`](https://docs.astral.sh/uv/) with a project-local
-virtual environment (no global/conda install needed). PyTorch is pinned to
-the CPU wheels — this network is far too small to need a GPU.
+virtual environment (no global/conda install needed). PyTorch ships the CUDA
+build; training **prefers the RTX 3070** automatically and falls back to CPU.
+(A single tiny net is actually faster on CPU — the GPU earns its keep once the
+capacity grid below grows. Force a device with `--device cpu` / `--device cuda:N`.)
 
 ```bash
-uv sync                 # creates .venv and installs torch (CPU), matplotlib, numpy
+uv sync                 # creates .venv and installs torch (CUDA), matplotlib, numpy
 
 uv run python main.py                                   # regression: learn a smooth bowl
 uv run python main.py --task classification --epochs 2000   # learn XOR (needs the hidden layer)
@@ -75,6 +77,28 @@ Outputs land in `outputs/` as both an animated `*.gif` and a final `*.png`.
   9-parameter brain, not a bug.
 
 ---
+
+## Is nine parameters enough? — the capacity grid
+
+Short answer: no, not for the bowl. To *show* it, train a whole grid of
+networks at once and watch them learn side by side:
+
+```bash
+uv run python grid.py                                   # 2x2 regression grid
+uv run python grid.py --rows 3 --cols 3 --task classification
+```
+
+- **→ across columns**: each hidden layer gains one neuron (wider).
+- **↓ down rows**: one more hidden layer is added (deeper).
+- the input (2) and output (1) never change — they're fixed by the problem.
+
+Every cell is a **full dashboard** — the same network diagram + loss curve +
+learned-surface + truth you get for a single network — so no detail is lost;
+only the colour scales are shared across the grid instead of repeated. The
+2×2 regression grid makes the point bluntly — going from the corner 2-2-1
+(9 params) to 2-3-3-1 (25 params) drops the loss by more than 10×:
+
+![capacity grid](outputs/grid_2x2_regression.png)
 
 ## How it's built
 

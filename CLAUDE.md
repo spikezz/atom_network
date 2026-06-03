@@ -13,35 +13,54 @@ visualizer plays it back as an animated dashboard (network diagram + loss curve
 
 ## Environment & Commands
 
-Uses **uv** with a project-local `.venv` (CPU-only PyTorch — the net is tiny).
-Do **not** use conda.
+Uses **uv** with a project-local `.venv`. torch is the **CUDA build** (cu128);
+training auto-selects a device, preferring the **RTX 3070** by name (see
+`atom/device.py`). Do **not** use conda.
 
 ```bash
 uv sync                 # create .venv, install deps from pyproject.toml + uv.lock
+
+# single network — the dashboard
 uv run python main.py                                       # regression demo
 uv run python main.py --task classification --epochs 2000   # classification demo
+
+# capacity grid — many networks at once (→ wider, ↓ deeper)
+uv run python grid.py                                       # 2x2 regression grid
+uv run python grid.py --rows 3 --cols 3 --task classification
+
+# force a device on either entry point
+uv run python main.py --device cpu
 ```
 
-Outputs are written to `outputs/` as `<task>_training.gif` and `<task>_final.png`.
+Outputs go to `outputs/`: `<task>_training.gif` / `<task>_final.png` for the
+single net, `grid_RxC_<task>.gif` / `.png` for the grid.
 
 ## Architecture
 
 ```
 atom/
-├── model.py       SimpleMLP — the 2-2-1 net; .trace() returns intermediate
-│                  activations, .snapshot() returns weights/biases for drawing.
+├── model.py       SimpleMLP (the 2-2-1 net) + MLP (general width/depth).
+│                  Both expose .trace() (intermediate activations, on CPU) and
+│                  .snapshot() (weights/biases, on CPU) for drawing.
 ├── data.py        synthetic datasets (regression bowl, classification XOR) +
 │                  true_surface() ground truth.
 ├── monitor.py     NetworkMonitor — PyTorch forward/backward hooks (read-only
 │                  probes for activations + gradient norms).
-├── train.py       training loop; records a frame dict every `snapshot_every`
-│                  epochs. Returns (model, history, context).
-└── visualize.py   render(history, context) -> GIF + PNG (matplotlib, Agg).
-main.py            argparse CLI entry point.
+├── device.py      pick_device() — prefers the RTX 3070 by name, else any CUDA,
+│                  else CPU; honours an explicit override.
+├── train.py       single-net training loop; records a frame every
+│                  `snapshot_every` epochs. Returns (model, history, context).
+├── visualize.py   render(history, context) -> GIF + PNG (the 4-panel dashboard).
+└── grid.py        train_grid()/render_grid() — a rows×cols grid of MLPs trained
+│                  together; generic draw_net() handles any width/depth.
+main.py            single-net CLI.
+grid.py            capacity-grid CLI.
 ```
 
 Key design rule: **training records, visualization replays.** Keep those two
 concerns separated — the same `history` can become an animation or a still.
+`.trace()`/`.snapshot()` always return CPU tensors so plotting works no matter
+which device trained the model.
 
 ## Conventions
 

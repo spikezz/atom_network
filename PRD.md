@@ -19,10 +19,11 @@
 - **参数总数**：9 个（6 个权重 + 3 个偏置）—— 少到可以同时画在一张图上
 
 ### 运行环境
-- **框架**：PyTorch（CPU wheel —— 这个网络太小，不需要 GPU）
+- **框架**：PyTorch（CUDA 版 cu128）
+- **设备选择**：自动选卡，**按名字优先选 RTX 3070**（`atom/device.py`），无 CUDA 时回退 CPU；可用 `--device cpu|cuda:N` 强制指定。单个微型网络在 CPU 上反而更快，GPU 的价值在**容量网格做大**之后才体现。
 - **包管理**：[`uv`](https://docs.astral.sh/uv/) + 项目内 `.venv`（不使用 conda）
-- **依赖**：`torch`、`numpy`、`matplotlib`、`pillow`（依赖与 CPU index 锁定在 `pyproject.toml` / `uv.lock`）
-- **可视化后端**：matplotlib 的 `Agg`（无头渲染，直接出文件，无需窗口）
+- **依赖**：`torch`、`numpy`、`matplotlib`、`pillow`（依赖与 CUDA index 锁定在 `pyproject.toml` / `uv.lock`）
+- **可视化后端**：matplotlib 的 `Agg`（无头渲染，直接出文件，无需窗口）。`.trace()`/`.snapshot()` 一律返回 CPU 张量，因此无论用哪块设备训练，绘图都不受影响。
 
 ### 核心设计：录制 → 回放
 - **训练负责录制**：每隔 `snapshot_every` 个 epoch，冻结一帧"翻页书"快照（当前权重、目前为止的 loss、梯度范数、探针输入的逐层激活、网络当前表示的整个函数面）。
@@ -34,12 +35,15 @@
 ### 核心组件（实际文件）
 ```
 atom/
-├── model.py       # SimpleMLP（2-2-1 网络）+ .trace()/.snapshot() 自报内部状态
+├── model.py       # SimpleMLP（2-2-1 网络）+ MLP（任意宽度/深度）；均有 .trace()/.snapshot()
 ├── data.py        # 两个合成数据集 + true_surface() 真实目标函数
 ├── monitor.py     # NetworkMonitor：PyTorch 前向/反向 hooks（只读探针，读激活与梯度范数）
-├── train.py       # 训练循环；逐帧记录 history，返回 (model, history, context)
-└── visualize.py   # render(history, context) → GIF + PNG（四联面板仪表盘）
-main.py            # argparse 命令行入口
+├── device.py      # pick_device()：优先 RTX 3070，否则任意 CUDA，再否则 CPU
+├── train.py       # 单网络训练循环；逐帧记录 history，返回 (model, history, context)
+├── visualize.py   # render(history, context) → GIF + PNG（四联面板仪表盘）
+└── grid.py        # train_grid()/render_grid()：rows×cols 网络同时训练；通用 draw_net() 支持任意结构
+main.py            # 单网络命令行入口
+grid.py            # 容量网格命令行入口
 ```
 
 ### 数据集（两个任务）
@@ -62,7 +66,22 @@ uv run python main.py --task classification --epochs 2000     # 分类：学习 
 ```
 产物落在 `outputs/`，形式为动画 `<task>_training.gif` 与最终静帧 `<task>_final.png`。
 
-参数：`--task {regression,classification}`、`--epochs`、`--lr`、`--snapshot-every`、`--fps`、`--out`。
+参数：`--task {regression,classification}`、`--epochs`、`--lr`、`--snapshot-every`、`--fps`、`--device`、`--out`。
+
+### 容量网格（回答"参数够不够"）
+单个 2-2-1 网络拟合碗形明显吃力（loss 卡在 2 左右）。为了**直观回答"是不是参数太少"**，`grid.py` 并排训练一整个网格的网络：
+- **向右（列）**：每个隐藏层 +1 个神经元（更宽）
+- **向下（行）**：+1 个隐藏层（更深）
+- 输入(2)、输出(1) 固定不动，只有隐藏层逐格 +1。
+
+每格画出：该网络结构（神经元随容量增长）+ 它学到的函数热力图 + 参数量与 loss；右侧栏给出共享的 target 参照和三个颜色图例。所有网络同时训练并渲染成动画（GIF）。
+
+```bash
+uv run python grid.py                                    # 2×2 回归网格
+uv run python grid.py --rows 3 --cols 3 --task classification
+```
+
+实测 2×2 回归（2000 epochs）的结论很直白：从角落的 `2-2-1`（9 参数, loss≈2.08）到 `2-3-3-1`（25 参数, loss≈0.09），误差下降一个数量级以上——**容量确实是瓶颈**。同时 `2-2-2-1`（变深但仍然窄）反而更差，说明"参数变多 ≠ 一定更好"，窄而深的瓶颈会拖累。
 
 ### 非功能需求
 - **简洁性**：代码极简，结构清晰。

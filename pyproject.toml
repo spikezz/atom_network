@@ -11,14 +11,15 @@ dependencies = [
     "pillow>=10.0",
 ]
 
-# This tiny 9-parameter network needs no GPU — pull the much smaller CPU wheels.
+# CUDA build so the grid can train on the GPU (prefers the RTX 3070). A single
+# tiny net runs fine on CPU; GPU pays off when the capacity grid grows.
 [[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
+torch = { index = "pytorch-cu128" }
 
 [build-system]
 requires = ["hatchling"]
