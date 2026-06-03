@@ -25,7 +25,8 @@ uv run python main.py                                       # regression demo
 uv run python main.py --task classification --epochs 2000   # classification demo
 
 # capacity grid — many networks at once (→ wider, ↓ deeper)
-uv run python grid.py                                       # 2x2 regression grid
+# grid size/params come from config.yaml; CLI flags override it
+uv run python grid.py                                       # uses config.yaml
 uv run python grid.py --rows 3 --cols 3 --task classification
 
 # force a device on either entry point
@@ -48,6 +49,8 @@ atom/
 │                  probes for activations + gradient norms).
 ├── device.py      pick_device() — prefers the RTX 3070 by name, else any CUDA,
 │                  else CPU; honours an explicit override.
+├── config.py      load_config()/apply_overrides() — config.yaml driving grid.py
+│                  (precedence: DEFAULTS < config.yaml < CLI flags).
 ├── train.py       single-net training loop; records a frame every
 │                  `snapshot_every` epochs. Returns (model, history, context).
 ├── visualize.py   render(history, context) -> GIF + PNG (the 4-panel dashboard).

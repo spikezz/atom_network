@@ -9,6 +9,7 @@ dependencies = [
     "numpy>=1.26",
     "matplotlib>=3.8",
     "pillow>=10.0",
+    "pyyaml>=6.0.3",
 ]
 
 # CUDA build so the grid can train on the GPU (prefers the RTX 3070). A single

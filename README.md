@@ -81,11 +81,24 @@ Outputs land in `outputs/` as both an animated `*.gif` and a final `*.png`.
 ## Is nine parameters enough? — the capacity grid
 
 Short answer: no, not for the bowl. To *show* it, train a whole grid of
-networks at once and watch them learn side by side:
+networks at once and watch them learn side by side. The grid is configured in
+[`config.yaml`](config.yaml) — set the size there and just run it; any flag on
+the command line overrides the file.
+
+```yaml
+# config.yaml
+grid:
+  rows: 2          # ↓ deeper  (each row adds a hidden layer)
+  cols: 2          # → wider   (each col adds a neuron per hidden layer)
+  base_width: 2    # the top-left cell
+  base_depth: 1
+training: { task: regression, epochs: 2000 }
+```
 
 ```bash
-uv run python grid.py                                   # 2x2 regression grid
-uv run python grid.py --rows 3 --cols 3 --task classification
+uv run python grid.py                                   # uses config.yaml
+uv run python grid.py --rows 3 --cols 4                 # CLI overrides the file
+uv run python grid.py --config experiments/deep.yaml    # or point at another file
 ```
 
 - **→ across columns**: each hidden layer gains one neuron (wider).

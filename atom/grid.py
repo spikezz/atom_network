@@ -72,14 +72,15 @@ def _cell_frame(net, epoch, losses, grid, gx, gy, task):
 
 
 def train_grid(rows=2, cols=2, task="regression", epochs=1500, lr=0.01,
-               n=1000, snapshot_every=30, seed=42, device=None):
+               n=1000, snapshot_every=30, seed=42, device=None,
+               base_width=2, base_depth=1):
     """Train a rows×cols grid of MLPs on the same data; return (histories, ctx)."""
     if device is None:
         device = pick_device()
     torch.manual_seed(seed)
     X, y = make_data(n, task, seed)
     X, y = X.to(device), y.to(device)
-    arch = make_architectures(rows, cols)
+    arch = make_architectures(rows, cols, base_width, base_depth)
 
     nets = [[MLP(hidden=arch[r][c]).to(device) for c in range(cols)] for r in range(rows)]
     opt = [[torch.optim.Adam(nets[r][c].parameters(), lr=lr) for c in range(cols)]

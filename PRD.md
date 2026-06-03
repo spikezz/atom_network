@@ -39,11 +39,13 @@ atom/
 ├── data.py        # 两个合成数据集 + true_surface() 真实目标函数
 ├── monitor.py     # NetworkMonitor：PyTorch 前向/反向 hooks（只读探针，读激活与梯度范数）
 ├── device.py      # pick_device()：优先 RTX 3070，否则任意 CUDA，再否则 CPU
+├── config.py      # load_config()/apply_overrides()：读 config.yaml（DEFAULTS < yaml < CLI）
 ├── train.py       # 单网络训练循环；逐帧记录 history，返回 (model, history, context)
-├── visualize.py   # render(history, context) → GIF + PNG（四联面板仪表盘）
-└── grid.py        # train_grid()/render_grid()：rows×cols 网络同时训练；通用 draw_net() 支持任意结构
+├── visualize.py   # 通用 cell 渲染器：单网络与网格共用（draw_dashboard 支持任意结构）
+└── grid.py        # train_grid()/render_grid()：rows×cols 网络同时训练，每格一个完整仪表盘
 main.py            # 单网络命令行入口
-grid.py            # 容量网格命令行入口
+grid.py            # 容量网格命令行入口（由 config.yaml 驱动）
+config.yaml        # 网格配置（尺寸/基础宽深/训练/渲染/设备）
 ```
 
 ### 数据集（两个任务）
@@ -76,9 +78,12 @@ uv run python main.py --task classification --epochs 2000     # 分类：学习 
 
 每格画出：该网络结构（神经元随容量增长）+ 它学到的函数热力图 + 参数量与 loss；右侧栏给出共享的 target 参照和三个颜色图例。所有网络同时训练并渲染成动画（GIF）。
 
+网格尺寸与参数集中在 **`config.yaml`**（`grid.rows`/`grid.cols`/`base_width`/`base_depth` 等），改完直接运行即可；命令行参数会覆盖文件。
+
 ```bash
-uv run python grid.py                                    # 2×2 回归网格
-uv run python grid.py --rows 3 --cols 3 --task classification
+uv run python grid.py                                    # 读取 config.yaml
+uv run python grid.py --rows 3 --cols 4                  # CLI 覆盖文件
+uv run python grid.py --config experiments/deep.yaml     # 或指定另一个配置文件
 ```
 
 实测 2×2 回归（2000 epochs）的结论很直白：从角落的 `2-2-1`（9 参数, loss≈2.08）到 `2-3-3-1`（25 参数, loss≈0.09），误差下降一个数量级以上——**容量确实是瓶颈**。同时 `2-2-2-1`（变深但仍然窄）反而更差，说明"参数变多 ≠ 一定更好"，窄而深的瓶颈会拖累。
