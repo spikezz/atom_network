@@ -6,8 +6,8 @@
 # A CLI flag always wins over what is written here.
 
 grid:
-  rows: 2          # ↓ depth axis  — number of rows    (each row adds one hidden layer)
-  cols: 2          # → width axis  — number of columns (each col adds one neuron per hidden layer)
+  rows: 3          # ↓ depth axis  — number of rows    (each row adds one hidden layer)
+  cols: 3          # → width axis  — number of columns (each col adds one neuron per hidden layer)
   base_width: 2    # neurons per hidden layer in the top-left cell
   base_depth: 1    # number of hidden layers in the top-left cell
 

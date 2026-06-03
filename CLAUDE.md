@@ -29,12 +29,24 @@ uv run python main.py --task classification --epochs 2000   # classification dem
 uv run python grid.py                                       # uses config.yaml
 uv run python grid.py --rows 3 --cols 3 --task classification
 
+# retrain only the cell(s) that got stuck, in place. coords are [row,col];
+# targets the latest run folder unless --run-dir given. --seed (init, default
+# random) and --lr (default: saved run) tune the retry, mirroring the grid flags.
+uv run python grid.py --rerun "[1,0]"
+uv run python grid.py --rerun "[[1,0],[0,2]]" --seed 7 --lr 0.05
+
 # force a device on either entry point
 uv run python main.py --device cpu
 ```
 
-Outputs go to `outputs/`: `<task>_training.gif` / `<task>_final.png` for the
-single net, `grid_RxC_<task>.gif` / `.png` for the grid.
+Outputs go to `outputs/`. The single net writes flat files
+(`<task>_training.gif` / `<task>_final.png`). Each grid run gets its own
+timestamped folder `outputs/<timestamp>_<task>/` holding `grid.gif`/`grid.png`
+(the whole grid), one subfolder per cell `r{r}c{c}_{arch}/` with that cell's own
+standalone dashboard `<arch>.gif`/`<arch>.png`, a `config.yaml` snapshot of the
+effective settings that produced the run, and `run_state.pkl` (the recorded run
+that `--rerun` patches). `--rerun` targets the latest run folder by default, or
+`--run-dir <path>` for a specific one.
 
 ## Architecture
 
@@ -54,8 +66,9 @@ atom/
 ├── train.py       single-net training loop; records a frame every
 │                  `snapshot_every` epochs. Returns (model, history, context).
 ├── visualize.py   render(history, context) -> GIF + PNG (the 4-panel dashboard).
-└── grid.py        train_grid()/render_grid() — a rows×cols grid of MLPs trained
-│                  together; generic draw_net() handles any width/depth.
+└── grid.py        train_grid()/render_grid()/render_run() — a rows×cols grid of
+│                  MLPs trained together; render_run() writes the grid plus every
+│                  cell as its own standalone dashboard into one run folder.
 main.py            single-net CLI.
 grid.py            capacity-grid CLI.
 ```
@@ -69,7 +82,8 @@ which device trained the model.
 
 - Dependencies live in `pyproject.toml`; torch is pinned to the CPU wheel index.
   After changing deps, run `uv lock` then `uv sync`.
-- `.venv/`, `__pycache__/` are git-ignored. `outputs/` artifacts are kept (the
-  README embeds `outputs/regression_final.png`).
+- `.venv/`, `__pycache__/` are git-ignored, as are per-run grid folders
+  (`outputs/*/`). Flat `outputs/` artifacts are kept (the README embeds
+  `outputs/regression_final.png`).
 - Code is written to be *read by a learner*: prefer clear names and comments
   that explain the "why" over cleverness.

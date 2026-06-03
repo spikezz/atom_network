@@ -8,3 +8,7 @@ __pycache__/
 
 # OS / editor
 .DS_Store
+
+# per-run grid outputs (timestamped folders) — regenerated on every run.
+# Flat example artifacts in outputs/ (e.g. *_final.png) stay tracked.
+outputs/*/

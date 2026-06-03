@@ -113,6 +113,62 @@ only the colour scales are shared across the grid instead of repeated. The
 
 ![capacity grid](outputs/grid_2x2_regression.png)
 
+### What a run produces
+
+Each `grid.py` run gets its own timestamped folder under `outputs/`, named
+`<timestamp>_<task>/`. Inside you get the whole grid **and** every cell broken
+out on its own — each cell rendered as the exact same standalone dashboard a
+single network gets, in its own subfolder:
+
+```
+outputs/
+└── 20260604-000935_regression/        ← one folder per run (timestamp_task)
+    ├── grid.gif / grid.png            ← the whole grid: overview + animation
+    ├── config.yaml                    ← the exact settings that produced this run
+    ├── run_state.pkl                  ← recorded run (so --rerun can patch cells)
+    ├── r0c0_2-2-1/   2-2-1.gif|.png   ← every cell on its own (full dashboard)
+    ├── r0c1_2-3-1/   2-3-1.gif|.png       r{row}c{col}_{arch}/
+    ├── r1c0_2-2-2-1/ 2-2-2-1.gif|.png
+    └── r1c1_2-3-3-1/ 2-3-3-1.gif|.png
+```
+
+The folder is **self-describing**: `config.yaml` is the *effective* config
+(config.yaml + whatever you passed on the command line), so you can always read
+off exactly what produced a run. (Run folders are git-ignored — regenerated on
+every run.)
+
+### Rerunning a cell that got stuck
+
+Training is random: now and then a cell lands in a bad minimum (the deep,
+narrow `2-2-2-1` is a repeat offender) and shows a much worse loss than its
+neighbours. You don't have to retrain the whole grid — point `--rerun` at the
+cell(s) by `[row, col]` and only those are retrained, **in place**, with a
+fresh init seed so they get a real second chance:
+
+```bash
+uv run python grid.py --rerun "[1,0]"                 # retry one cell
+uv run python grid.py --rerun "[[1,0],[0,2]]"         # retry several
+uv run python grid.py --rerun "[1,0]" --seed 7        # reproducible retry (init seed)
+uv run python grid.py --rerun "[1,0]" --lr 0.05       # retry with a different learning rate
+```
+
+- coordinates are `[row, col]` — row ↓ (depth), col → (width); the same axes
+  the grid prints its losses on.
+- only the listed cells are retrained and their dashboards replaced; every
+  other cell's dashboard is left untouched. The grid overview is redrawn so it
+  reflects the new result.
+- two knobs, mirroring the grid's own flags: **`--seed`** (the init) and
+  **`--lr`** (the learning rate). `--lr` defaults to the saved run; `--seed`
+  defaults to a *fresh random* init (printed) so a stuck cell actually gets a
+  different start — pass `--seed N` to reproduce a good one.
+- **which run?** by default it patches the *latest* `outputs/<timestamp>_<task>/`
+  (the one closest to now); point at a specific one with
+  `--run-dir outputs/20260604-000935_regression`. The replacement happens inside
+  that folder.
+- keep re-running until the loss drops — each try is a different init. Every
+  cell's dashboard prints the `lr` and `seed` it was trained with, so you can
+  always see what produced it (handy once different cells have different ones).
+
 ## How it's built
 
 ```

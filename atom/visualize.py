@@ -146,7 +146,12 @@ def draw_loss(ax, frame, total_epochs):
     ax.set_ylabel("loss (log)", fontsize=8)
     ax.tick_params(labelsize=7)
     ax.grid(True, which="both", alpha=0.25)
-    ax.text(0.96, 0.93, f"epoch {frame['epoch']}\nloss {frame['loss']:.4f}",
+    info = f"epoch {frame['epoch']}\nloss {frame['loss']:.4f}"
+    # what trained this particular cell — matters once --rerun gives cells
+    # their own lr / seed (see atom/grid.py)
+    if frame.get("lr") is not None and frame.get("seed") is not None:
+        info += f"\nlr {frame['lr']:g}  ·  seed {frame['seed']}"
+    ax.text(0.96, 0.93, info,
             transform=ax.transAxes, ha="right", va="top", fontsize=8,
             bbox=dict(boxstyle="round", fc="#fff7e6", ec="#e0c080"))
 

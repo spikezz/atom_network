@@ -58,3 +58,26 @@ def apply_overrides(cfg: dict, args) -> dict:
         if val is not None:
             cfg[key] = val
     return cfg
+
+
+def save_config(cfg: dict, path) -> None:
+    """Write the *effective* config used for a run (DEFAULTS + config.yaml + CLI
+    overrides) back out in the same grouped layout, so a run folder is
+    self-describing — you can read off exactly what produced it.
+
+    This is a snapshot for the record only: --rerun reads run_state.pkl (which
+    also carries the good cells' trained weights), not this file.
+    """
+    grouped = {"grid": {}, "training": {}, "render": {}}
+    for key, section in _SECTIONS.items():
+        if section is None:
+            grouped[key] = cfg[key]          # device sits at the top level
+        else:
+            grouped[section][key] = cfg[key]
+    header = (
+        "# Effective configuration for THIS run.\n"
+        "# = config.yaml overlaid with any CLI flags that were given —\n"
+        "#   i.e. exactly what produced this folder.\n"
+        "# For the record only; `grid.py --rerun` reads run_state.pkl, not this.\n"
+    )
+    Path(path).write_text(header + yaml.safe_dump(grouped, sort_keys=False))
