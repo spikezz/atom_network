@@ -55,7 +55,7 @@ def make_architectures(rows, cols, base_width=2, base_depth=1):
 # --------------------------------------------------------------------------- #
 # training all cells together
 # --------------------------------------------------------------------------- #
-def _cell_frame(net, epoch, losses, grid, gx, gy, task, lr, seed):
+def _cell_frame(net, epoch, losses, grid, gx, gy, task, lr, seed, init=None):
     device = next(net.parameters()).device
     with torch.no_grad():
         pred = net(grid).reshape(gx.shape)
@@ -73,6 +73,11 @@ def _cell_frame(net, epoch, losses, grid, gx, gy, task, lr, seed):
         "nparams": net.n_params(),
         "lr": lr,
         "seed": seed,
+        # the cell's epoch-0 weights — the *actual numbers* it drew from this
+        # seed's stream. Same object in every frame (one slice, fixed), so it
+        # pickles once; shown verbatim so two "seed 42" cells reveal their
+        # different starting points.
+        "init": init,
     }
 
 
@@ -97,6 +102,8 @@ def train_grid(rows=2, cols=2, task="regression", epochs=1500, lr=0.01,
     init_weights = [[{k: v.detach().cpu().clone()
                       for k, v in nets[r][c].state_dict().items()}
                      for c in range(cols)] for r in range(rows)]
+    # the same numbers in drawing form (per-layer W, b), to print on each cell
+    init_snaps = [[nets[r][c].snapshot() for c in range(cols)] for r in range(rows)]
     opt = [[torch.optim.Adam(nets[r][c].parameters(), lr=lr) for c in range(cols)]
            for r in range(rows)]
     criterion = nn.MSELoss() if task == "regression" else nn.BCEWithLogitsLoss()
@@ -120,7 +127,8 @@ def train_grid(rows=2, cols=2, task="regression", epochs=1500, lr=0.01,
                 for c in range(cols):
                     histories[r][c].append(
                         _cell_frame(nets[r][c], epoch, losses[r][c],
-                                    grid, gx, gy, task, lr, seed))
+                                    grid, gx, gy, task, lr, seed,
+                                    init=init_snaps[r][c]))
 
     context = {
         "task": task, "rows": rows, "cols": cols, "arch": arch,
@@ -304,6 +312,7 @@ def rerun_cells(context, cells, init_seed, device=None, lr=None):
             torch.manual_seed(init_seed)       # ... or a fresh, different start
             net = MLP(hidden=hidden).to(device)
             seed_used = init_seed
+        init = net.snapshot()                  # the actual numbers this retry used
         opt = torch.optim.Adam(net.parameters(), lr=lr)
         losses, history = [], []
         for epoch in range(epochs):
@@ -315,7 +324,7 @@ def rerun_cells(context, cells, init_seed, device=None, lr=None):
             losses.append(loss.item())
             if epoch % snapshot_every == 0 or epoch == epochs - 1:
                 history.append(_cell_frame(net, epoch, losses, grid, gx, gy, task,
-                                           lr, seed_used))
+                                           lr, seed_used, init=init))
         out[(r, c)] = history
     return out
 

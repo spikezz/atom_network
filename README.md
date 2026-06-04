@@ -174,6 +174,11 @@ uv run python grid.py --rerun "[1,0]" --seed 7        # a fresh, different init
 - every cell's dashboard prints the `lr` and `seed` it was trained with, so you
   can always read off what produced it (in the default mode the seed shown is
   the grid's, i.e. the seed that originally made that init).
+- below the network, each dashboard also prints the cell's **starting weights** —
+  the *actual numbers* it drew. Since the grid seeds once and builds its cells in
+  order, two cells both labelled `seed 42` start from **different** numbers (each
+  drew a different slice of that one stream); printing them makes that visible,
+  and a default `--rerun` shows the *same* numbers back (the exact-init restore).
 
 ## How it's built
 

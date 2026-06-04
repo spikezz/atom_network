@@ -9,6 +9,11 @@ The unit of display is a **dashboard cell** with four panels:
   * "what the network learned" — the function it represents right now.
   * "the truth" — the function it is trying to match.
 
+Below the network we also print the cell's **starting weights** — the actual
+numbers it drew from its seed. The live weights on the diagram animate away from
+those; the block is the fixed starting point, and it shows why two cells under
+the same grid seed still begin differently (each drew a different slice).
+
 `draw_dashboard()` fills one cell. The single-network view is exactly one cell;
 the capacity grid (see atom/grid.py) is a whole grid of identical cells. The
 drawing is generic over architecture, so a 2-2-1 and a 2-3-3-1 render the same
@@ -167,6 +172,41 @@ def draw_surface(ax, data, lim, title, vmin, vmax):
 
 
 # --------------------------------------------------------------------------- #
+# the cell's epoch-0 weights, printed verbatim — the *actual numbers* it drew
+# from the seed's stream. Lifted out of the loss info box (too bulky) into its
+# own block under the network, so two "seed 42" cells visibly start different.
+# --------------------------------------------------------------------------- #
+def _init_lines(snap):
+    """One monospaced line per layer: the weight rows then the bias vector."""
+    lines = []
+    for l, (W, b) in enumerate(snap):
+        rows = ["[" + " ".join(f"{W[i, j].item():+.2f}" for j in range(W.shape[1])) + "]"
+                for i in range(W.shape[0])]
+        b_str = " ".join(f"{b[i].item():+.2f}" for i in range(b.shape[0]))
+        lines.append(f"W{l + 1} {' '.join(rows)}   b{l + 1} [{b_str}]")
+    return lines
+
+
+def draw_init_block(ax_net, frame):
+    """Print the cell's starting weights below its network diagram (outside the
+    plot). Static across frames — the live weights animate on the diagram; this
+    is the fixed starting point they came from."""
+    init = frame.get("init")
+    if not init:
+        return
+    head = "init weights — the actual numbers this cell drew"
+    seed = frame.get("seed")
+    if seed is not None:
+        head += f"  (seed {seed}'s slice)"
+    text = head + "\n" + "\n".join(_init_lines(init))
+    ax_net.text(-0.10, -0.20, text, transform=ax_net.transAxes,
+                ha="left", va="top", fontsize=6, family="monospace",
+                color="#555", clip_on=False, zorder=6,
+                bbox=dict(boxstyle="round,pad=0.35", fc="#f6f6f4", ec="#cfcfcf",
+                          alpha=0.95))
+
+
+# --------------------------------------------------------------------------- #
 # one full dashboard cell (network + loss + learned + truth)
 # --------------------------------------------------------------------------- #
 def draw_dashboard(axes, frame, ctx, w_norm, a_norm, s_vmin, s_vmax,
@@ -177,6 +217,7 @@ def draw_dashboard(axes, frame, ctx, w_norm, a_norm, s_vmin, s_vmax,
     if net_title is None:
         net_title = "the network  ·  lines = weights, circles = neurons"
     ax_net.set_title(net_title, fontsize=9.5, pad=6)
+    draw_init_block(ax_net, frame)
     draw_loss(ax_loss, frame, ctx["total_epochs"])
     draw_surface(ax_pred, frame["pred"].numpy(), lim, "what the network learned",
                  s_vmin, s_vmax)
