@@ -30,7 +30,8 @@ def _input_grid():
     return flat, gx, gy
 
 
-def _frame(model, monitor, epoch, losses, task, grid, gx, gy, lr, seed, init=None):
+def _frame(model, monitor, epoch, losses, task, grid, gx, gy, lr, seed, init=None,
+           init_kind=None):
     """Snapshot everything the visualizer needs for one animation frame."""
     device = next(model.parameters()).device
     snap = model.snapshot()
@@ -53,6 +54,7 @@ def _frame(model, monitor, epoch, losses, task, grid, gx, gy, lr, seed, init=Non
         "lr": lr,
         "seed": seed,
         "init": init,   # epoch-0 weights: the actual numbers this seed drew
+        "init_kind": init_kind,   # single net is seeded then built first => "head"
     }
 
 
@@ -90,7 +92,7 @@ def train(task="regression", epochs=1000, lr=0.01, n=1000,
         losses.append(loss.item())
         if epoch % snapshot_every == 0 or epoch == epochs - 1:
             history.append(_frame(model, monitor, epoch, losses, task, grid, gx, gy,
-                                  lr, seed, init=init))
+                                  lr, seed, init=init, init_kind="head"))
 
     monitor.detach()
     context = {

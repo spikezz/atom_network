@@ -187,6 +187,24 @@ def _init_lines(snap):
     return lines
 
 
+def _init_caption(frame):
+    """Header for the init block — names *where* these numbers came from, which
+    differs by how the net was built (see init_kind set by the producers):
+      * grid     — a slice of the one shared stream, at this cell's build spot
+      * head     — built first after seeding, so it's the start of that stream
+      * restored — the original init put back verbatim (a default --rerun)
+    """
+    seed = frame.get("seed")
+    if seed is None:
+        return "init weights — the actual numbers this net drew"
+    where = {
+        "grid": f"seed {seed} · this cell's slice of the stream",
+        "head": f"seed {seed} · the start of its stream",
+        "restored": f"seed {seed} · original init restored",
+    }.get(frame.get("init_kind"), f"seed {seed}")
+    return f"init weights — the actual numbers drawn  ({where})"
+
+
 def draw_init_block(ax_net, frame):
     """Print the cell's starting weights below its network diagram (outside the
     plot). Static across frames — the live weights animate on the diagram; this
@@ -194,11 +212,7 @@ def draw_init_block(ax_net, frame):
     init = frame.get("init")
     if not init:
         return
-    head = "init weights — the actual numbers this cell drew"
-    seed = frame.get("seed")
-    if seed is not None:
-        head += f"  (seed {seed}'s slice)"
-    text = head + "\n" + "\n".join(_init_lines(init))
+    text = _init_caption(frame) + "\n" + "\n".join(_init_lines(init))
     ax_net.text(-0.10, -0.20, text, transform=ax_net.transAxes,
                 ha="left", va="top", fontsize=6, family="monospace",
                 color="#555", clip_on=False, zorder=6,

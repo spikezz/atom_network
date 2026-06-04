@@ -19,6 +19,7 @@ DEFAULTS = {
     "snapshot_every": 40,
     "seed": 42,
     "fps": 12,
+    "frame_repeat": 1,
     "out": "outputs",
     "device": None,
 }
@@ -28,7 +29,7 @@ _SECTIONS = {
     "rows": "grid", "cols": "grid", "base_width": "grid", "base_depth": "grid",
     "task": "training", "epochs": "training", "lr": "training",
     "snapshot_every": "training", "seed": "training",
-    "fps": "render", "out": "render",
+    "fps": "render", "frame_repeat": "render", "out": "render",
     "device": None,
 }
 

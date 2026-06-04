@@ -74,6 +74,9 @@ def main():
                          "a fresh init seeded with this. Omit it to instead restore "
                          "each cell's EXACT original init (study lr in isolation).")
     ap.add_argument("--fps", type=int)
+    ap.add_argument("--frame-repeat", dest="frame_repeat", type=int,
+                    help="hold each frame this many ticks (1 = fastest, 2 = half "
+                         "speed, ...); slows playback with no extra render cost")
     ap.add_argument("--out")
     ap.add_argument("--device", help="cpu | cuda | cuda:N (default: auto, prefers RTX 3070)")
     # rerun only the cells that trained badly, leaving the good ones untouched
@@ -93,6 +96,9 @@ def main():
     device = pick_device(override=cfg["device"])
     out_dir = Path(cfg["out"])
     out_dir.mkdir(parents=True, exist_ok=True)
+    # playback speed: holding each frame `frame_repeat` ticks == a slower frame
+    # rate, so we just divide fps. Same #frames encoded => no extra render cost.
+    play_fps = cfg["fps"] / max(1, cfg["frame_repeat"])
 
     # --- rerun mode: surgically retrain just the failed cells, then return ---
     if args.rerun is not None:
@@ -118,7 +124,7 @@ def main():
         print(f"Rerun: {run_dir}  |  device: {describe(device)}")
         print(f"  cells {cells}  |  {seed_note}  |  {lr_note}")
         try:
-            last = rerun_run(run_dir, cells, init_seed, fps=cfg["fps"],
+            last = rerun_run(run_dir, cells, init_seed, fps=play_fps,
                              device=device, lr=args.lr)
         except (ValueError, FileNotFoundError) as e:
             ap.error(str(e))
@@ -153,7 +159,7 @@ def main():
     print("  · grid.gif / grid.png        — the whole grid")
     print("  · r{r}c{c}_<arch>/<arch>.*   — every cell on its own (gif + png)")
     print("  · config.yaml                — the exact settings that produced this run")
-    _, cell_dirs = render_run(histories, context, run_dir, fps=cfg["fps"])
+    _, cell_dirs = render_run(histories, context, run_dir, fps=play_fps)
     save_config(cfg, run_dir / "config.yaml")   # make the run folder self-describing
     print(f"Done. {1 + len(cell_dirs)} dashboards "
           f"(1 grid + {len(cell_dirs)} cells) under:\n  {run_dir}/")

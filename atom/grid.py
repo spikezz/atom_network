@@ -55,7 +55,8 @@ def make_architectures(rows, cols, base_width=2, base_depth=1):
 # --------------------------------------------------------------------------- #
 # training all cells together
 # --------------------------------------------------------------------------- #
-def _cell_frame(net, epoch, losses, grid, gx, gy, task, lr, seed, init=None):
+def _cell_frame(net, epoch, losses, grid, gx, gy, task, lr, seed, init=None,
+                init_kind=None):
     device = next(net.parameters()).device
     with torch.no_grad():
         pred = net(grid).reshape(gx.shape)
@@ -76,8 +77,10 @@ def _cell_frame(net, epoch, losses, grid, gx, gy, task, lr, seed, init=None):
         # the cell's epoch-0 weights — the *actual numbers* it drew from this
         # seed's stream. Same object in every frame (one slice, fixed), so it
         # pickles once; shown verbatim so two "seed 42" cells reveal their
-        # different starting points.
+        # different starting points. init_kind says where they came from
+        # (grid slice / stream head / restored) so the caption can be honest.
         "init": init,
+        "init_kind": init_kind,
     }
 
 
@@ -128,7 +131,7 @@ def train_grid(rows=2, cols=2, task="regression", epochs=1500, lr=0.01,
                     histories[r][c].append(
                         _cell_frame(nets[r][c], epoch, losses[r][c],
                                     grid, gx, gy, task, lr, seed,
-                                    init=init_snaps[r][c]))
+                                    init=init_snaps[r][c], init_kind="grid"))
 
     context = {
         "task": task, "rows": rows, "cols": cols, "arch": arch,
@@ -308,10 +311,12 @@ def rerun_cells(context, cells, init_seed, device=None, lr=None):
             net.load_state_dict({k: v.to(device)
                                  for k, v in init_weights[r][c].items()})
             seed_used = context["seed"]        # the seed that produced this init
+            init_kind = "restored"
         else:
             torch.manual_seed(init_seed)       # ... or a fresh, different start
             net = MLP(hidden=hidden).to(device)
             seed_used = init_seed
+            init_kind = "head"                 # single net built first => stream head
         init = net.snapshot()                  # the actual numbers this retry used
         opt = torch.optim.Adam(net.parameters(), lr=lr)
         losses, history = [], []
@@ -324,7 +329,8 @@ def rerun_cells(context, cells, init_seed, device=None, lr=None):
             losses.append(loss.item())
             if epoch % snapshot_every == 0 or epoch == epochs - 1:
                 history.append(_cell_frame(net, epoch, losses, grid, gx, gy, task,
-                                           lr, seed_used, init=init))
+                                           lr, seed_used, init=init,
+                                           init_kind=init_kind))
         out[(r, c)] = history
     return out
 
