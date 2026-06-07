@@ -22,7 +22,7 @@
 - **框架**：PyTorch（CUDA 版 cu128）
 - **设备选择**：自动选卡，**按名字优先选 RTX 3070**（`atom/device.py`），无 CUDA 时回退 CPU；可用 `--device cpu|cuda:N` 强制指定。单个微型网络在 CPU 上反而更快，GPU 的价值在**容量网格做大**之后才体现。
 - **包管理**：[`uv`](https://docs.astral.sh/uv/) + 项目内 `.venv`（不使用 conda）
-- **依赖**：`torch`、`numpy`、`matplotlib`、`pillow`（依赖与 CUDA index 锁定在 `pyproject.toml` / `uv.lock`）
+- **依赖**：`torch`、`numpy`、`matplotlib`、`pillow`、`pyyaml`（依赖与 CUDA index 锁定在 `pyproject.toml` / `uv.lock`）
 - **可视化后端**：matplotlib 的 `Agg`（无头渲染，直接出文件，无需窗口）。`.trace()`/`.snapshot()` 一律返回 CPU 张量，因此无论用哪块设备训练，绘图都不受影响。
 
 ### 核心设计：录制 → 回放
@@ -36,7 +36,8 @@
 ```
 atom/
 ├── model.py       # SimpleMLP（2-2-1 网络）+ MLP（任意宽度/深度）；均有 .trace()/.snapshot()
-├── data.py        # 两个合成数据集 + true_surface() 真实目标函数
+├── tasks/         # 任务注册表：每个学习问题一个模块（regression/classification），
+│                  #   各自打包 make_data/true_surface/loss/激活；load_task()/available_tasks()
 ├── monitor.py     # NetworkMonitor：PyTorch 前向/反向 hooks（只读探针，读激活与梯度范数）
 ├── device.py      # pick_device()：优先 RTX 3070，否则任意 CUDA，再否则 CPU
 ├── config.py      # load_config()/apply_overrides()：读 config.yaml（DEFAULTS < yaml < CLI）

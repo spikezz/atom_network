@@ -103,8 +103,8 @@ Nothing else changes: `available_tasks()` scans the folder, so config.yaml's
 
 ## Conventions
 
-- Dependencies live in `pyproject.toml`; torch is pinned to the CPU wheel index.
-  After changing deps, run `uv lock` then `uv sync`.
+- Dependencies live in `pyproject.toml`; torch is pinned to the CUDA (cu128)
+  wheel index. After changing deps, run `uv lock` then `uv sync`.
 - `.venv/`, `__pycache__/` are git-ignored, as are per-run grid folders
   (`outputs/*/`). Flat `outputs/` artifacts are kept (the README embeds
   `outputs/regression_final.png`).

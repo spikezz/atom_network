@@ -186,7 +186,8 @@ uv run python grid.py --rerun "[1,0]" --seed 7        # a fresh, different init
 atom/
 ├── model.py       SimpleMLP — the 2-2-1 network, plus .trace() and .snapshot()
 │                  so it can report its own internals for drawing.
-├── data.py        the two synthetic datasets + the ground-truth surface.
+├── tasks/         one module per learning problem (regression, classification):
+│                  each bundles its data, ground-truth surface, and loss.
 ├── monitor.py     NetworkMonitor — PyTorch forward/backward hooks that read
 │                  activations and gradients without touching the model.
 ├── train.py       the training loop; every few epochs it freezes a "frame".
