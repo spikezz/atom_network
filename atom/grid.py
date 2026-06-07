@@ -23,10 +23,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 import torch
-import torch.nn as nn
 
 from .model import MLP
-from .data import make_data, true_surface
+from .tasks import load_task
 from .train import _input_grid, PROBE, GRID_LIM
 from .device import pick_device
 from .visualize import (scales_from_frames, draw_dashboard, _make_cell_axes,
@@ -55,13 +54,11 @@ def make_architectures(rows, cols, base_width=2, base_depth=1):
 # --------------------------------------------------------------------------- #
 # training all cells together
 # --------------------------------------------------------------------------- #
-def _cell_frame(net, epoch, losses, grid, gx, gy, task, lr, seed, init=None,
+def _cell_frame(net, epoch, losses, grid, gx, gy, activation, lr, seed, init=None,
                 init_kind=None):
     device = next(net.parameters()).device
     with torch.no_grad():
-        pred = net(grid).reshape(gx.shape)
-        if task == "classification":
-            pred = torch.sigmoid(pred)
+        pred = activation(net(grid).reshape(gx.shape))
     return {
         "epoch": epoch,
         "loss": losses[-1],
@@ -90,8 +87,9 @@ def train_grid(rows=2, cols=2, task="regression", epochs=1500, lr=0.01,
     """Train a rows×cols grid of MLPs on the same data; return (histories, ctx)."""
     if device is None:
         device = pick_device()
+    task_obj = load_task(task)
     torch.manual_seed(seed)
-    X, y = make_data(n, task, seed)
+    X, y = task_obj.make_data(n, seed)
     X, y = X.to(device), y.to(device)
     arch = make_architectures(rows, cols, base_width, base_depth)
 
@@ -109,7 +107,7 @@ def train_grid(rows=2, cols=2, task="regression", epochs=1500, lr=0.01,
     init_snaps = [[nets[r][c].snapshot() for c in range(cols)] for r in range(rows)]
     opt = [[torch.optim.Adam(nets[r][c].parameters(), lr=lr) for c in range(cols)]
            for r in range(rows)]
-    criterion = nn.MSELoss() if task == "regression" else nn.BCEWithLogitsLoss()
+    criterion = task_obj.make_criterion()
 
     grid, gx, gy = _input_grid()
     grid = grid.to(device)
@@ -130,12 +128,12 @@ def train_grid(rows=2, cols=2, task="regression", epochs=1500, lr=0.01,
                 for c in range(cols):
                     histories[r][c].append(
                         _cell_frame(nets[r][c], epoch, losses[r][c],
-                                    grid, gx, gy, task, lr, seed,
+                                    grid, gx, gy, task_obj.activation, lr, seed,
                                     init=init_snaps[r][c], init_kind="grid"))
 
     context = {
         "task": task, "rows": rows, "cols": cols, "arch": arch,
-        "gx": gx, "gy": gy, "true_surface": true_surface(gx, gy, task),
+        "gx": gx, "gy": gy, "true_surface": task_obj.true_surface(gx, gy),
         "grid_lim": GRID_LIM, "total_epochs": epochs, "device": str(device),
         # everything a later --rerun needs to retrain a single cell: same data +
         # same architecture grid, plus each cell's exact starting weights so the
@@ -283,6 +281,7 @@ def rerun_cells(context, cells, init_seed, device=None, lr=None):
     if device is None:
         device = pick_device()
     task = context["task"]
+    task_obj = load_task(task)
     epochs = context["total_epochs"]
     lr = context["lr"] if lr is None else lr
     snapshot_every = context["snapshot_every"]
@@ -291,11 +290,11 @@ def rerun_cells(context, cells, init_seed, device=None, lr=None):
     init_weights = context.get("init_weights")
 
     # identical dataset to the original grid run (same seed) ...
-    X, y = make_data(context["n"], task, context["seed"])
+    X, y = task_obj.make_data(context["n"], context["seed"])
     X, y = X.to(device), y.to(device)
     grid, _, _ = _input_grid()
     grid = grid.to(device)
-    criterion = nn.MSELoss() if task == "regression" else nn.BCEWithLogitsLoss()
+    criterion = task_obj.make_criterion()
 
     out = {}
     for (r, c) in cells:
@@ -328,9 +327,9 @@ def rerun_cells(context, cells, init_seed, device=None, lr=None):
             opt.step()
             losses.append(loss.item())
             if epoch % snapshot_every == 0 or epoch == epochs - 1:
-                history.append(_cell_frame(net, epoch, losses, grid, gx, gy, task,
-                                           lr, seed_used, init=init,
-                                           init_kind=init_kind))
+                history.append(_cell_frame(net, epoch, losses, grid, gx, gy,
+                                           task_obj.activation, lr, seed_used,
+                                           init=init, init_kind=init_kind))
         out[(r, c)] = history
     return out
 

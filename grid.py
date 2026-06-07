@@ -21,6 +21,7 @@ from pathlib import Path
 from atom.grid import train_grid, render_run, rerun_run
 from atom.device import pick_device, describe
 from atom.config import load_config, apply_overrides, save_config
+from atom.tasks import available_tasks
 
 
 def parse_cells(s):
@@ -65,7 +66,8 @@ def main():
                     help="neurons per hidden layer in the top-left cell")
     ap.add_argument("--base-depth", dest="base_depth", type=int,
                     help="hidden layers in the top-left cell")
-    ap.add_argument("--task", choices=["regression", "classification"])
+    ap.add_argument("--task", choices=available_tasks(),
+                    help="a module in atom/tasks/ (default: from config.yaml)")
     ap.add_argument("--epochs", type=int)
     ap.add_argument("--lr", type=float)
     ap.add_argument("--snapshot-every", dest="snapshot_every", type=int)

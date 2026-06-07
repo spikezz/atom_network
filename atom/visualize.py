@@ -29,6 +29,8 @@ from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
 from matplotlib.animation import FuncAnimation, PillowWriter
 
+from .tasks import load_task
+
 WEIGHT_CMAP = plt.get_cmap("coolwarm")   # weights: blue (−) … red (+)
 ACT_CMAP = plt.get_cmap("RdBu_r")        # neuron activation, diverging at 0
 
@@ -274,9 +276,9 @@ def draw_dashboard(axes, frame, ctx, w_norm, a_norm, s_vmin, s_vmax,
 
 
 def _surface_range(ctx):
-    if ctx["task"] == "classification":
-        return 0.0, 1.0
-    return 0.0, float(ctx["true_surface"].max())
+    # the colour range for the learned/truth surfaces is a per-task display
+    # choice, so the task owns it (regression: 0..tallest; classification: 0..1).
+    return load_task(ctx["task"]).surface_range(ctx["true_surface"])
 
 
 def _make_cell_axes(fig, spec):

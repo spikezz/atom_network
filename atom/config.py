@@ -48,6 +48,15 @@ def load_config(path="config.yaml") -> dict:
             cfg[key] = source[key]
         elif section is None and key in raw:
             cfg[key] = raw[key]
+
+    # `task:` must name a real module in atom/tasks/ — catch typos here with a
+    # helpful message rather than a cryptic ImportError deep in training.
+    from .tasks import available_tasks   # local: keep this module torch-free
+    tasks = available_tasks()
+    if cfg["task"] not in tasks:
+        raise ValueError(
+            f"unknown task {cfg['task']!r} in {path}; available: {tasks}. "
+            f"Add atom/tasks/{cfg['task']}.py to define it.")
     return cfg
 
 

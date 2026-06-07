@@ -57,16 +57,22 @@ atom/
 ├── model.py       SimpleMLP (the 2-2-1 net) + MLP (general width/depth).
 │                  Both expose .trace() (intermediate activations, on CPU) and
 │                  .snapshot() (weights/biases, on CPU) for drawing.
-├── data.py        synthetic datasets (regression bowl, classification XOR) +
-│                  true_surface() ground truth.
+├── tasks/         one module per learning problem — a task registry. Each file
+│   ├── base.py    defines a module-level `TASK = Task(...)`; __init__ discovers
+│   ├── regression.py    them by filename. A Task bundles everything that differs
+│   ├── classification.py  between problems: make_data, true_surface, make_criterion,
+│   └── __init__.py  activation (display squash), surface_range (colour range). The
+│                  rest of the code never branches on a task name — it asks the
+│                  task. load_task(name) / available_tasks() drive config + CLIs.
 ├── monitor.py     NetworkMonitor — PyTorch forward/backward hooks (read-only
 │                  probes for activations + gradient norms).
 ├── device.py      pick_device() — prefers the RTX 3070 by name, else any CUDA,
 │                  else CPU; honours an explicit override.
 ├── config.py      load_config()/apply_overrides() — config.yaml driving grid.py
-│                  (precedence: DEFAULTS < config.yaml < CLI flags).
-├── train.py       single-net training loop; records a frame every
-│                  `snapshot_every` epochs. Returns (model, history, context).
+│                  (precedence: DEFAULTS < config.yaml < CLI flags); validates
+│                  `task:` against available_tasks().
+├── train.py       single-net training loop; resolves load_task(task) and records
+│                  a frame every `snapshot_every` epochs. Returns (model, history, context).
 ├── visualize.py   render(history, context) -> GIF + PNG (the 4-panel dashboard).
 └── grid.py        train_grid()/render_grid()/render_run() — a rows×cols grid of
 │                  MLPs trained together; render_run() writes the grid plus every
@@ -79,6 +85,21 @@ Key design rule: **training records, visualization replays.** Keep those two
 concerns separated — the same `history` can become an animation or a still.
 `.trace()`/`.snapshot()` always return CPU tensors so plotting works no matter
 which device trained the model.
+
+A second rule falls out of the task registry: **the task name is the only thing
+that crosses the record/replay boundary.** `context["task"]` is stored as a plain
+string (never a Task object — those carry lambdas and don't pickle), so old
+`run_state.pkl` folders stay `--rerun`-compatible: replay re-resolves the task by
+name. Determinism is preserved by ordering — `torch.manual_seed(seed)` →
+build the net(s) (consume the global RNG) → `task.make_data(n, seed)` (its own
+independent generator). Importing a task module never touches the RNG.
+
+### Adding a task
+
+Drop a `atom/tasks/<name>.py` that defines a module-level `TASK = Task(...)`.
+Nothing else changes: `available_tasks()` scans the folder, so config.yaml's
+`task: <name>`, `--task <name>`, and validation all pick it up automatically. See
+`atom/tasks/base.py` for the six fields a `Task` bundles.
 
 ## Conventions
 

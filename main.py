@@ -14,14 +14,15 @@ from pathlib import Path
 from atom.train import train
 from atom.visualize import render
 from atom.device import pick_device, describe
+from atom.tasks import available_tasks
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--task", default="regression",
-                    choices=["regression", "classification"],
-                    help="what the network should learn")
+                    choices=available_tasks(),
+                    help="what the network should learn (a module in atom/tasks/)")
     ap.add_argument("--epochs", type=int, default=1000)
     ap.add_argument("--lr", type=float, default=0.01)
     ap.add_argument("--snapshot-every", type=int, default=20,
