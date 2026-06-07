@@ -187,34 +187,68 @@ def _init_lines(snap):
     return lines
 
 
+def _ellipsize(line, max_chars):
+    """Trim a line to max_chars, marking any cut with a trailing ellipsis (so a
+    wide layer's weights don't run off the panel / into the next grid cell)."""
+    if len(line) <= max_chars:
+        return line
+    return line[:max(1, max_chars - 1)].rstrip() + "…"
+
+
 def _init_caption(frame):
     """Header for the init block — names *where* these numbers came from, which
     differs by how the net was built (see init_kind set by the producers):
       * grid     — a slice of the one shared stream, at this cell's build spot
       * head     — built first after seeding, so it's the start of that stream
       * restored — the original init put back verbatim (a default --rerun)
+
+    Seed comes first so that, if the line gets ellipsized to fit a narrow cell,
+    the part that survives is the bit that identifies the run.
     """
     seed = frame.get("seed")
     if seed is None:
-        return "init weights — the actual numbers this net drew"
+        return "init weights — the actual numbers drawn"
     where = {
-        "grid": f"seed {seed} · this cell's slice of the stream",
-        "head": f"seed {seed} · the start of its stream",
-        "restored": f"seed {seed} · original init restored",
-    }.get(frame.get("init_kind"), f"seed {seed}")
-    return f"init weights — the actual numbers drawn  ({where})"
+        "grid": "this cell's slice of the stream",
+        "head": "the start of its stream",
+        "restored": "original init restored",
+    }.get(frame.get("init_kind"), "")
+    cap = f"init weights · seed {seed}"
+    return f"{cap} · {where}" if where else cap
 
 
 def draw_init_block(ax_net, frame):
     """Print the cell's starting weights below its network diagram (outside the
     plot). Static across frames — the live weights animate on the diagram; this
-    is the fixed starting point they came from."""
+    is the fixed starting point they came from.
+
+    Wide/deep cells would otherwise overflow the panel, so we size the block to
+    the network panel: each line is ellipsized to the panel's character width,
+    and excess layers collapse into a "… (+N more)" line."""
     init = frame.get("init")
     if not init:
         return
-    text = _init_caption(frame) + "\n" + "\n".join(_init_lines(init))
-    ax_net.text(-0.10, -0.20, text, transform=ax_net.transAxes,
-                ha="left", va="top", fontsize=6, family="monospace",
+    fontsize = 6
+    fig = ax_net.figure
+    pos = ax_net.get_position()
+    # Horizontal is the real constraint: a wide layer's row of weights would run
+    # off the panel (into the next grid cell). Size each line to the chars that
+    # span the network panel — DejaVu Sans Mono advances ~0.6 em/char.
+    panel_w_pt = fig.get_size_inches()[0] * pos.width * 72.0
+    max_chars = max(12, int(panel_w_pt / (0.6 * fontsize)))
+    # Vertical isn't bounded the same way: the PNGs save with bbox_inches="tight",
+    # so the canvas just grows to fit however many layers there are. Keep only a
+    # generous safety cap so a pathologically deep net can't print a wall of text.
+    max_lines = 14
+
+    lines = [_ellipsize(s, max_chars)
+             for s in [_init_caption(frame)] + _init_lines(init)]
+    if len(lines) > max_lines:
+        hidden = len(lines) - (max_lines - 1)
+        lines = lines[:max_lines - 1] + [f"… (+{hidden} more layer"
+                                         f"{'s' if hidden > 1 else ''})"]
+    ax_net.text(-0.10, -0.20, "\n".join(lines), transform=ax_net.transAxes,
+                ha="left", va="top", fontsize=fontsize, family="monospace",
                 color="#555", clip_on=False, zorder=6,
                 bbox=dict(boxstyle="round,pad=0.35", fc="#f6f6f4", ec="#cfcfcf",
                           alpha=0.95))
