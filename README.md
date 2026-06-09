@@ -198,3 +198,7 @@ main.py            command-line entry point.
 The design idea: **training produces a flip-book**, and **visualization plays
 it back**. The two concerns stay cleanly separated, which is why the same
 recorded history can become a smooth animation or a single crisp still.
+
+## License
+
+[MIT](LICENSE) — free to use, study, modify, and share.

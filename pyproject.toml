@@ -3,6 +3,8 @@ name = "atom-network"
 version = "0.1.0"
 description = "A microscope for the smallest neural network — watch a 2-2-1 MLP learn, in real time."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "torch>=2.2",
